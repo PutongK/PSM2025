@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-subbuild/CMakeFiles/libigl-populate"
+		},
+		{
+			"file" : "/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-subbuild/CMakeFiles/libigl-populate.rule"
+		},
+		{
+			"file" : "/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-subbuild/CMakeFiles/libigl-populate-complete.rule"
+		},
+		{
+			"file" : "/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-build.rule"
+		},
+		{
+			"file" : "/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-configure.rule"
+		},
+		{
+			"file" : "/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-download.rule"
+		},
+		{
+			"file" : "/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-install.rule"
+		},
+		{
+			"file" : "/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-mkdir.rule"
+		},
+		{
+			"file" : "/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-patch.rule"
+		},
+		{
+			"file" : "/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-test.rule"
+		},
+		{
+			"file" : "/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-subbuild/libigl-populate-prefix/src/libigl-populate-stamp/libigl-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"libigl-populate"
+		],
+		"name" : "libigl-populate"
+	}
+}

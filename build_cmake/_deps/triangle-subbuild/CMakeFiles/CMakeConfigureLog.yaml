@@ -1,0 +1,81 @@
+
+---
+events:
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/pkk5131/miniconda3/envs/psm/share/cmake-4.1/Modules/CMakeDetermineSystem.cmake:12 (find_program)"
+      - "CMakeLists.txt:16 (project)"
+    mode: "program"
+    variable: "CMAKE_UNAME"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "uname"
+    candidate_directories:
+      - "/home/pkk5131/miniconda3/envs/psm/bin/"
+      - "/home/pkk5131/miniconda3/envs/psm/sbin/"
+      - "/home/pkk5131/miniconda3/envs/psm/"
+      - "/home/pkk5131/miniconda3/envs/psm/x86_64-conda-linux-gnu/sysroot/usr/bin/"
+      - "/home/pkk5131/miniconda3/envs/psm/x86_64-conda-linux-gnu/sysroot/usr/sbin/"
+      - "/home/pkk5131/miniconda3/envs/psm/x86_64-conda-linux-gnu/sysroot/usr/"
+      - "/home/pkk5131/.vscode-server/cli/servers/Stable-17baf841131aa23349f217ca7c570c76ee87b957/server/bin/remote-cli/"
+      - "/home/pkk5131/miniconda3/envs/psm/bin/"
+      - "/home/pkk5131/miniconda3/condabin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/pkk5131/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+    searched_directories:
+      - "/home/pkk5131/miniconda3/envs/psm/bin/uname"
+      - "/home/pkk5131/miniconda3/envs/psm/sbin/uname"
+      - "/home/pkk5131/miniconda3/envs/psm/uname"
+      - "/home/pkk5131/miniconda3/envs/psm/x86_64-conda-linux-gnu/sysroot/usr/bin/uname"
+      - "/home/pkk5131/miniconda3/envs/psm/x86_64-conda-linux-gnu/sysroot/usr/sbin/uname"
+      - "/home/pkk5131/miniconda3/envs/psm/x86_64-conda-linux-gnu/sysroot/usr/uname"
+      - "/home/pkk5131/.vscode-server/cli/servers/Stable-17baf841131aa23349f217ca7c570c76ee87b957/server/bin/remote-cli/uname"
+      - "/home/pkk5131/miniconda3/envs/psm/bin/uname"
+      - "/home/pkk5131/miniconda3/condabin/uname"
+      - "/usr/local/sbin/uname"
+      - "/usr/local/bin/uname"
+      - "/usr/sbin/uname"
+    found: "/usr/bin/uname"
+    search_context:
+      ENV{CMAKE_PREFIX_PATH}:
+        - "/home/pkk5131/miniconda3/envs/psm"
+        - "/home/pkk5131/miniconda3/envs/psm/x86_64-conda-linux-gnu/sysroot/usr"
+      ENV{PATH}:
+        - "/home/pkk5131/.vscode-server/cli/servers/Stable-17baf841131aa23349f217ca7c570c76ee87b957/server/bin/remote-cli"
+        - "/home/pkk5131/miniconda3/envs/psm/bin"
+        - "/home/pkk5131/miniconda3/condabin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/pkk5131/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/pkk5131/miniconda3/envs/psm/share/cmake-4.1/Modules/CMakeDetermineSystem.cmake:212 (message)"
+      - "CMakeLists.txt:16 (project)"
+    message: |
+      The system is: Linux - 5.15.0-139-generic - x86_64
+...

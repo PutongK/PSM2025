@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

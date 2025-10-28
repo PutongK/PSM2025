@@ -13,7 +13,8 @@ export CMAKE_PREFIX_PATH="$CONDA_PREFIX"
 ls "$CONDA_PREFIX/lib/cmake" | grep -E '^vtk-9\.' -n
 ls "$CONDA_PREFIX/lib/cmake/TBB" -1
 
-# Attention! Case sensitive
+# Attention! Case-sensitive rename required for HLBFGS.
+# The original guide has an issue with the folder name.
 cd ~/workspace/src/PSM2025/external
 mv HLBFGS hlbfgs
 
@@ -29,10 +30,19 @@ cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DVTK_DIR="$CONDA_PREFIX/lib/cmake/$(ls "$CONDA_PREFIX/lib/cmake" | grep -E '^vtk-9\.' | head -n1)" \
   -DTBB_DIR="$CONDA_PREFIX/lib/cmake/TBB"
 
-
-# Run successful, but need extra libs for the env
+# Run successful, but need extra libs [GSL] for the env
 conda install -y -c conda-forge gsl
 
-
-# Make
+# Make using ninja
 ninja -j"$(nproc)"
+
+# To run PSM2025, use the following commands
+# Change directory to a new run folder
+cd ~/workspace/src/PSM2025
+mkdir -p run/quicktest
+cp bin/shell run/quicktest/
+cd run/quicktest
+
+# run
+./shell -sim monolayer_growth -case basic_disk -h 0.01 -innerR 0.05 -res 128 -s1 0.05 -s2 0.0
+

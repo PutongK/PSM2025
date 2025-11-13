@@ -23,9 +23,9 @@ class EnergyOperatorList : public EnergyOperator<tMesh>
 {
 protected:
     std::vector<EnergyOperator<tMesh>*> operators;
-    
+
 public:
-    
+
     EnergyOperatorList(std::initializer_list<EnergyOperator<tMesh>*> init_list):
     EnergyOperator<tMesh>()
     {
@@ -33,37 +33,37 @@ public:
         for( auto elem : init_list )
             operators.push_back(elem);
     }
-    
-    
+
+
     Real compute(const tMesh & mesh) const override
     {
         Real energy = 0.0;
         for(size_t i=0;i<operators.size();++i)
             energy += operators[i]->compute(mesh);
-        
+
         return energy;
     }
-    
+
     Real compute(const tMesh & mesh, Eigen::Ref<Eigen::VectorXd> gradient) const override
     {
         Real energy = 0.0;
-        
+
         for(size_t i=0;i<operators.size();++i)
             energy += operators[i]->compute(mesh, gradient);
-        
-        return energy;
+
+	return energy;
     }
-    
+
     Real computeSubsetEnergies(const tMesh & mesh, const std::vector<int> & face_indices) const override
     {
         Real energy = 0.0;
-        
+
         for(size_t i=0;i<operators.size();++i)
             energy += operators[i]->computeSubsetEnergies(mesh, face_indices);
-        
-        return energy;        
+
+        return energy;
     }
-    
+
     bool isSubsetImplemented() const override
     {
         bool retval = true;
@@ -71,19 +71,19 @@ public:
             retval = (retval && operators[i]->isSubsetImplemented());
         return retval;
     }
-    
+
     virtual void printProfilerSummary() const override
     {
         for(size_t i=0;i<operators.size();++i)
             operators[i]->printProfilerSummary();
     }
-        
+
     virtual void addEnergy(std::vector<std::pair<std::string, Real>> & out) const override
     {
         for(size_t i=0;i<operators.size();++i)
             operators[i]->addEnergy(out);
     }
-    
+
     int getNumberOfVariables(const tMesh & mesh) const override
     {
         int retval = operators[0]->getNumberOfVariables(mesh);

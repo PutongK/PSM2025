@@ -3,7 +3,8 @@
 //  Elasticity
 //
 //  Created by Wim van Rees on 2/18/16.
-//  Copyright © 2016 Wim van Rees. All rights reserved.
+//  Modified by Vladislav Sushitskii on 03/29/22.
+//  Copyright © 2022 Wim van Rees and Vladislav Sushitskii. All rights reserved.
 //
 //! \file Mesh.hpp
 
@@ -32,21 +33,21 @@ class BaseMesh
 public:
     typedef tCCD tCurrentConfigData;
     typedef tRCD tReferenceConfigData;
-    
+
 protected:
     tCurrentConfigData currentState;
     tReferenceConfigData restState;
-    
+
     TopologyData topology;
     BoundaryConditionsData boundaryConditions;
-    
+
 public:
     BaseMesh()
     {
         // no initialization: happens on init instead
         // maybe need a bool isInitialized flag or something
     }
-    
+
     /*! initialize the grid with the these vertex and faces list, as well as BCs. Will set the current state as rest state */
     virtual void init(const Geometry & geometry, const bool bClampFixedEdges = false)
     {
@@ -54,29 +55,29 @@ public:
         restState.clear();
         topology.clear();
         boundaryConditions.clear();
-        
+
         Eigen::MatrixXd vertices_in;
         Eigen::MatrixXi faces_in;
         Eigen::MatrixXb vertices_bc_in;
-        
+
         geometry.get(vertices_in, faces_in, vertices_bc_in);
         topology.init(vertices_in, faces_in);
-        
+
         const int nEdges = getNumberOfEdges();
-        
+
         // now we can initialize our variables: assume current state is rest state
         restState.init(vertices_in, nEdges);
         currentState.init(vertices_in, nEdges);
-        
+
         // set the rest and edge directors using the geometry function
         const bool bAnalyticNormals = geometry.analyticNormals();
         if(not bAnalyticNormals && bClampFixedEdges)
         {
             helpers::catastrophe("When specifying clamped edges - need to specify analytic normals as well!", __FILE__, __LINE__);
         }
-        
+
         std::function<Eigen::Vector3d(const Eigen::Vector3d)> normal_function = std::bind(&Geometry::getNormal, &geometry, std::placeholders::_1);
-        
+
         if(bAnalyticNormals)
         {
             restState.setEdgeDirectors(topology, normal_function);
@@ -87,35 +88,156 @@ public:
         // boundary conditions
         boundaryConditions.init(vertices_bc_in, nEdges);
         if(bClampFixedEdges) boundaryConditions.clampFixedEdges(topology, currentState.getVertices(), normal_function); // fix wrt current configuration : this could also be changed
-        
+
         restState.update(topology, boundaryConditions);
         currentState.update(topology, boundaryConditions);
-        
 
     }
-    
+
+    virtual void init_current(const Geometry & geometry, const bool bClampFixedEdges = false)
+    {
+        currentState.clear();
+        topology.clear();
+        boundaryConditions.clear();
+
+        Eigen::MatrixXd vertices_in;
+        Eigen::MatrixXi faces_in;
+        Eigen::MatrixXb vertices_bc_in;
+
+        geometry.get(vertices_in, faces_in, vertices_bc_in);
+        topology.init(vertices_in, faces_in);
+
+        const int nEdges = getNumberOfEdges();
+
+        // now we can initialize our variables: assume current state is rest state
+        currentState.init(vertices_in, nEdges);
+
+        // set the rest and edge directors using the geometry function
+        const bool bAnalyticNormals = geometry.analyticNormals();
+        if(not bAnalyticNormals && bClampFixedEdges)
+        {
+            helpers::catastrophe("When specifying clamped edges - need to specify analytic normals as well!", __FILE__, __LINE__);
+        }
+
+        std::function<Eigen::Vector3d(const Eigen::Vector3d)> normal_function = std::bind(&Geometry::getNormal, &geometry, std::placeholders::_1);
+
+        if(bAnalyticNormals)
+        {
+            currentState.setEdgeDirectors(topology, normal_function);
+        }
+
+        // else : by default edge directors are set to zero
+
+        // boundary conditions
+        boundaryConditions.init(vertices_bc_in, nEdges);
+        if(bClampFixedEdges) boundaryConditions.clampFixedEdges(topology, currentState.getVertices(), normal_function); // fix wrt current configuration : this could also be changed
+
+        currentState.update(topology, boundaryConditions);
+
+    }
+
+    virtual void init_rest(const Geometry & geometry, const bool bClampFixedEdges = false)
+    {
+        restState.clear();
+        topology.clear();
+        boundaryConditions.clear();
+
+        Eigen::MatrixXd vertices_in;
+        Eigen::MatrixXi faces_in;
+        Eigen::MatrixXb vertices_bc_in;
+
+        geometry.get(vertices_in, faces_in, vertices_bc_in);
+        topology.init(vertices_in, faces_in);
+
+        const int nEdges = getNumberOfEdges();
+
+        // now we can initialize our variables: assume current state is rest state
+        restState.init(vertices_in, nEdges);
+
+        // set the rest and edge directors using the geometry function
+        const bool bAnalyticNormals = geometry.analyticNormals();
+        if(not bAnalyticNormals && bClampFixedEdges)
+        {
+            helpers::catastrophe("When specifying clamped edges - need to specify analytic normals as well!", __FILE__, __LINE__);
+        }
+
+        std::function<Eigen::Vector3d(const Eigen::Vector3d)> normal_function = std::bind(&Geometry::getNormal, &geometry, std::placeholders::_1);
+
+        if(bAnalyticNormals)
+        {
+            restState.setEdgeDirectors(topology, normal_function);
+        }
+
+        // else : by default edge directors are set to zero
+
+        // boundary conditions
+        boundaryConditions.init(vertices_bc_in, nEdges);
+
+        restState.update(topology, boundaryConditions);
+
+    }
+
+
+    /*! initialize the grid from a restart file */
+    virtual void readFromFile(const std::string & basename)
+    {
+        currentState.clear();
+        restState.clear();
+        topology.clear();
+        boundaryConditions.clear();
+
+        // first we read the restState and currentStates -- this updates the aforms/bforms, vertices, and edgedirs
+        restState.readFromFile(basename);
+        currentState.readFromFile(basename);
+
+        // then we read and initialize the topology
+        Eigen::MatrixXi faces_in;
+        helpers::read_matrix_binary(basename+"_topo_faces.dat", faces_in);
+        topology.init(restState.getVertices(), faces_in);
+
+        // then we take care of the boundary conditions
+        boundaryConditions.readFromFile(basename);
+
+        // then we update the current state (rest state comes how it is incl forms - dont want to update those)
+        updateDeformedConfiguration();
+    }
+
+    /*! dump the mesh stuff to a restart file */
+    virtual void writeToFile(const std::string & basename) const
+    {
+        // first we write the restState and currentStates
+        restState.writeToFile(basename);
+        currentState.writeToFile(basename);
+
+        // then we write the topology
+        helpers::write_matrix_binary(basename+"_topo_faces.dat", topology.getFace2Vertices());
+
+        // then we take care of the boundary conditions
+        boundaryConditions.writeToFile(basename);
+    }
+
     void updateDeformedConfiguration()
     {
         currentState.update(topology, boundaryConditions);
     }
-    
+
     void updateDeformedConfiguration(const std::vector<int> & face_indices)
     {
         currentState.update(topology, boundaryConditions, face_indices);
     }
-    
+
     virtual void resetToRestState()
     {
         currentState.dcsdata.getData() = restState.dcsdata.getData();
         updateDeformedConfiguration();
     }
-    
+
     // boundary conditions according to a function
     void setVertexBoundaryConditions(std::function<Eigen::Vector3b(Real,Real,Real)> vertex_bc)
     {
         const int nVertices = getNumberOfVertices();
         const auto restvertices = restState.getVertices();
-        
+
         for(int i=0;i<nVertices;++i)
         {
             const Real vx = restvertices(i,0);
@@ -127,12 +249,12 @@ public:
             boundaryConditions.vertices_bc(i,2) = isFixed(2);
         }
     }
-    
+
     void setEdgeBoundaryConditions(std::function<bool(Real,Real,Real)> edge_bc)
     {
         const int nEdges = getNumberOfEdges();
         const auto restvertices = restState.getVertices();
-        
+
         int count = 0;
         for(int i=0;i<nEdges;++i)
         {
@@ -141,15 +263,15 @@ public:
             const Real ex = 0.5*(restvertices(idx_v0,0) + restvertices(idx_v1,0));
             const Real ey = 0.5*(restvertices(idx_v0,1) + restvertices(idx_v1,1));
             const Real ez = 0.5*(restvertices(idx_v0,2) + restvertices(idx_v1,2));
-            
+
             const bool isFixed = edge_bc(ex, ey, ez);
             boundaryConditions.edges_bc(i) = isFixed;
-            
+
             if(isFixed) count++;
         }
         std::cout << "number of fixed edges = " << count << std::endl;
     }
-    
+
     int clampFixedEdges()
     {
         auto vertical_normals = [](const Eigen::Vector3d) -> Eigen::Vector3d
@@ -158,24 +280,24 @@ public:
             retval << 0,0,1;
             return retval;
         };
-        
+
         return boundaryConditions.clampFixedEdges(topology, currentState.getVertices(), vertical_normals);
     }
-    
+
     int clampFixedEdges(std::function<Eigen::Vector3d(const Eigen::Vector3d)> midedge_normals)
     {
         return boundaryConditions.clampFixedEdges(topology, currentState.getVertices(), midedge_normals);
     }
-    
+
     int clampFixedEdgesDiscrete(const Eigen::Ref<const Eigen::MatrixXd> & midedge_normals)
     {
         return boundaryConditions.clampFixedEdgesDiscrete(topology, midedge_normals);
     }
-    
+
     void changeVertices(std::function<Eigen::Vector3d(Eigen::Vector3d)> update_func, const bool keepBoundaryConditions=true)
     {
         if(keepBoundaryConditions)
-        { 
+        {
             currentState.changeVertices(update_func, boundaryConditions.getVertexBoundaryConditions());
         }
         else
@@ -183,7 +305,7 @@ public:
             currentState.changeVertices(update_func);
         }
     }
-    
+
     void changeEdgeDirectors(std::function<Real(Real)> update_func, const bool keepBoundaryConditions=true)
     {
         if(keepBoundaryConditions)
@@ -195,66 +317,66 @@ public:
             currentState.changeEdgeDirectors(update_func);
         }
     }
-    
+
     // getter for data pointer (optimization)
     virtual Real * getDataPointer()
     {
         return currentState.getDataPointer();
     }
-    
+
     // non-const getters
     TopologyData & getTopology()
     {
         return topology;
     }
-    
+
     BoundaryConditionsData & getBoundaryConditions()
     {
         return boundaryConditions;
     }
-    
+
     tCurrentConfigData & getCurrentConfiguration()
     {
         return currentState;
     }
-    
+
     tReferenceConfigData & getRestConfiguration()
     {
         return restState;
     }
-    
-    
+
+
     // const getters
     int getNumberOfVertices() const
     {
         return currentState.getNumberOfVertices();
     }
-    
+
     int getNumberOfFaces() const
     {
         return topology.getNumberOfFaces();
     }
-    
+
     int getNumberOfEdges() const
     {
         return topology.getNumberOfEdges();
     }
-    
+
     const TopologyData & getTopology() const
     {
         return topology;
     }
-    
+
     const BoundaryConditionsData & getBoundaryConditions() const
     {
         return boundaryConditions;
     }
-    
+
     const tCurrentConfigData & getCurrentConfiguration() const
     {
         return currentState;
     }
-    
+
     const tReferenceConfigData & getRestConfiguration() const
     {
         return restState;

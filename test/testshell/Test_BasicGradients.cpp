@@ -9,7 +9,6 @@
 #include "gtest/gtest.h"
 
 #include "common.hpp"
-#include "Timer.hpp"
 #include "Geometry.hpp"
 #include "Mesh.hpp"
 
@@ -75,13 +74,9 @@ protected:
         gradient_vertices_exact.setZero();
         gradient_edges_exact.setZero();
         
-        Timer<std::chrono::milliseconds> timer;
-        timer.start();
-        
         mesh.updateDeformedConfiguration();
         tTestGradient gradOp;
         const Real eng = gradOp.compute(mesh, gradient_vertices_exact, gradient_edges_exact);
-        timer.stop();
         std::cout << "[----------] === energy = " << eng << std::endl;
         
         // compute the approximate gradient
@@ -93,13 +88,7 @@ protected:
         
         Derivative_FD<tMesh, tTestGradient> derivative_FD(order, mesh, gradOp, eps);
         
-        // compute gradient using finite differences
-        timer.reset();
-        timer.start();
-        
         derivative_FD.computeGradient(gradient_vertices_approx, gradient_edges_approx);
-        
-        timer.stop();
         
 //        std::cout << "Approx gradient (order=" << order+1 << ") took " << timer.totTime << " ms" << std::endl;
         

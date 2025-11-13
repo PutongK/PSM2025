@@ -16,7 +16,7 @@
  * @tparam tMesh Type of the mesh
  *
  * @details
- * Base class for parametrization of a set of variables that will be used to minimize a cost function. 
+ * Base class for parametrization of a set of variables that will be used to minimize a cost function.
  *
  * @see HLBFGS_Energy_Parametrized
  */
@@ -35,7 +35,7 @@ public:
     /**
      * Initialize the solution / unknown vector and allocate if necessary
      *
-     * Here we will initialize the data pointer by allocating the corresponding data and filling it with an initial guess. 
+     * Here we will initialize the data pointer by allocating the corresponding data and filling it with an initial guess.
      *
      * @param [in] initVals a vector with the initial values for the unknowns
      * @param [in] reAllocate whether we need to reallocate the array or not (if we reuse the parametrizer between different optimizations we might not want to reallocate)
@@ -58,18 +58,18 @@ public:
         // also update the mesh
         updateSolution();
     }
-    
+
     virtual int getNumberOfVariables() const = 0;
     virtual Real * getDataPointer() const
     {
         return data;
     }
 
-    
+
     virtual void updateSolution() = 0;
     virtual void updateGradient(const int nVars, const Eigen::Ref<const Eigen::VectorXd> energyGradient, Real * const grad_ptr) = 0;
     virtual Real computeEnergyContribution() {return 0;}
-    
+
     virtual ~Parametrizer()
     {
         if(data!=nullptr)

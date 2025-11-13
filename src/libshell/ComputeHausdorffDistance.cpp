@@ -48,7 +48,7 @@ Real ComputeHausdorffDistance::compute(const Eigen::Ref<const Eigen::MatrixXd> v
     // compute the distance
     Real retval;
 //    igl::hausdorff<Eigen::MatrixXd, Eigen::MatrixXi, Eigen::MatrixXd, Eigen::MatrixXi, Real>(vertices_A_trafo, faces, vertices_B, faces, retval);
-    
+
     // IGL does not handle Eigen::Ref well -- need to define a reference explicitly
     const Eigen::MatrixXd & ref_vertices_B = vertices_B;
     const Eigen::MatrixXi & ref_faces = faces;

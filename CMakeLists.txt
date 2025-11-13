@@ -174,4 +174,3 @@ target_include_directories(testshell PUBLIC "${SRC_DIR}/libshell/")
 target_link_libraries(testshell gtest gmock_main libshell)
 add_test(NAME test1 COMMAND testshell)
 
-

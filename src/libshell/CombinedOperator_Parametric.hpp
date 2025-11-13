@@ -19,7 +19,7 @@
  * @tparam MeshLayer The layer of the mesh we are computing for (single, bottom or top)
  *
  * @details
- * This class is responsible for computing the isotropic hyperelastic energy of the current configuration 
+ * This class is responsible for computing the isotropic hyperelastic energy of the current configuration
  * with respect to the reference first and second fundamental form of the rest configuration. It is also responsible
  * for computing the algebraic gradient of this energy with respect to the vertex positions and the edge director values.
  * It can handle a monolayer mesh, as well as each layer of a bilayer mesh with different reference first fundamental forms
@@ -32,13 +32,13 @@ class CombinedOperator_Parametric : public EnergyOperator_DCS<tMesh>
 public:
     using EnergyOperator_DCS<tMesh>::compute;
     typedef typename tMesh::tCurrentConfigData tCurrentConfigData;
-    
+
 protected:
     /**
      * A reference to the material properties of the faces
      */
     const MaterialProperties<tMaterialType> & material_properties;
-    
+
     /**
      * The last computed stretching energy will be stored here
      */
@@ -51,7 +51,7 @@ protected:
      * The last computed bilayer energy term will be stored here
      */
     mutable Real lastEnergy_ab;
-    
+
     /**
      * Computes the energy and, if desired, the gradient
      *
@@ -64,11 +64,11 @@ protected:
      * @param [out]  gradient_edges the gradient of the energy with respect each edge director value (unused if computeGradient is false)
      * @param [in] computeGradient whether or not we should compute the gradient
      * @return the total computed energy (lastEnergy_aa + lastEnergy_bb + lastEnergy_ab)
-     */    
+     */
     Real computeAll(const tMesh & mesh, Eigen::Ref<Eigen::MatrixXd> gradient_vertices, Eigen::Ref<Eigen::VectorXd> gradient_edges, const bool computeGradient) const override;
-    
+
 public:
-    
+
     CombinedOperator_Parametric(const MaterialProperties<tMaterialType> & material_properties):
     EnergyOperator_DCS<tMesh>(),
     material_properties(material_properties),
@@ -76,7 +76,7 @@ public:
     lastEnergy_bb(0),
     lastEnergy_ab(0)
     {}
-    
+
     virtual void addEnergy(std::vector<std::pair<std::string, Real>> & out) const override
     {
         std::string prefix;
@@ -87,12 +87,12 @@ public:
             case top   : prefix="top"; break;
             default    : std::cout << "no valid layer given\n";
         }
-        
+
         out.push_back(std::make_pair(prefix+"stretching_aa", lastEnergy_aa));
         out.push_back(std::make_pair(prefix+"bending_bb", lastEnergy_bb));
         if(layer != single) out.push_back(std::make_pair(prefix+"mixed_ab", lastEnergy_ab));
     }
-    
+
     /**
      * Computes the energy for only a subset of all the triangle faces, and integrates them
      *
@@ -107,26 +107,26 @@ public:
     Real computePerFaceEnergies(const tMesh & mesh, Eigen::Ref<Eigen::MatrixXd> per_face_energies) const;
     void computePerFaceStresses(const tMesh & mesh, Eigen::Ref<Eigen::MatrixXd> per_face_stretch_stress, Eigen::Ref<Eigen::MatrixXd> per_face_bend_stress) const;
     void computePerFaceStrains(const tMesh & mesh, Eigen::Ref<Eigen::MatrixXd> per_face_stretch_strain, Eigen::Ref<Eigen::MatrixXd> per_face_bend_strain) const;
-    
+
     bool isSubsetImplemented() const override {return true;}
-    
+
     void printProfilerSummary() const override
     {
         if(layer == bottom) std::cout << "=== BOTTOM LAYER === \n";
         if(layer == top)  std::cout << "=== TOP LAYER === \n";
         this->profiler.printSummary();
     }
-    
+
     Real getLastStretchingEnergy() const
     {
         return lastEnergy_aa;
     }
-    
+
     Real getLastBendingEnergy() const
     {
         return lastEnergy_bb;
     }
-    
+
     Real getLastABEnergy() const
     {
         return lastEnergy_ab;

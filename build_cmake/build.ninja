@@ -49,6 +49,17 @@ cmake_ninja_workdir = /home/pkk5131/workspace/src/PSM2025/build_cmake/
 
 build cmake_object_order_depends_target_libshell: phony || cmake_object_order_depends_target_hlbfgs cmake_object_order_depends_target_triangle
 
+build CMakeFiles/libshell.dir/src/libshell/AreaDistortionOperator.cpp.o: CXX_COMPILER__libshell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/libshell/AreaDistortionOperator.cpp || cmake_object_order_depends_target_libshell
+  CONFIG = Release
+  DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles/libshell.dir/src/libshell/AreaDistortionOperator.cpp.o.d
+  FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
+  INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
+  OBJECT_DIR = CMakeFiles/libshell.dir
+  OBJECT_FILE_DIR = CMakeFiles/libshell.dir/src/libshell
+  TARGET_COMPILE_PDB = CMakeFiles/libshell.dir/libshell.pdb
+  TARGET_PDB = /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.pdb
+
 build CMakeFiles/libshell.dir/src/libshell/BendingOperator_Parametric.cpp.o: CXX_COMPILER__libshell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/libshell/BendingOperator_Parametric.cpp || cmake_object_order_depends_target_libshell
   CONFIG = Release
   DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
@@ -71,10 +82,32 @@ build CMakeFiles/libshell.dir/src/libshell/CombinedOperator_Parametric.cpp.o: CX
   TARGET_COMPILE_PDB = CMakeFiles/libshell.dir/libshell.pdb
   TARGET_PDB = /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.pdb
 
+build CMakeFiles/libshell.dir/src/libshell/CombinedOperator_Parametric_InverseGrowth_Bilayer.cpp.o: CXX_COMPILER__libshell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/libshell/CombinedOperator_Parametric_InverseGrowth_Bilayer.cpp || cmake_object_order_depends_target_libshell
+  CONFIG = Release
+  DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles/libshell.dir/src/libshell/CombinedOperator_Parametric_InverseGrowth_Bilayer.cpp.o.d
+  FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
+  INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
+  OBJECT_DIR = CMakeFiles/libshell.dir
+  OBJECT_FILE_DIR = CMakeFiles/libshell.dir/src/libshell
+  TARGET_COMPILE_PDB = CMakeFiles/libshell.dir/libshell.pdb
+  TARGET_PDB = /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.pdb
+
 build CMakeFiles/libshell.dir/src/libshell/ComputeCurvatures.cpp.o: CXX_COMPILER__libshell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/libshell/ComputeCurvatures.cpp || cmake_object_order_depends_target_libshell
   CONFIG = Release
   DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
   DEP_FILE = CMakeFiles/libshell.dir/src/libshell/ComputeCurvatures.cpp.o.d
+  FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
+  INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
+  OBJECT_DIR = CMakeFiles/libshell.dir
+  OBJECT_FILE_DIR = CMakeFiles/libshell.dir/src/libshell
+  TARGET_COMPILE_PDB = CMakeFiles/libshell.dir/libshell.pdb
+  TARGET_PDB = /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.pdb
+
+build CMakeFiles/libshell.dir/src/libshell/ComputeErrorMap.cpp.o: CXX_COMPILER__libshell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/libshell/ComputeErrorMap.cpp || cmake_object_order_depends_target_libshell
+  CONFIG = Release
+  DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles/libshell.dir/src/libshell/ComputeErrorMap.cpp.o.d
   FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
   INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
   OBJECT_DIR = CMakeFiles/libshell.dir
@@ -93,10 +126,76 @@ build CMakeFiles/libshell.dir/src/libshell/ComputeHausdorffDistance.cpp.o: CXX_C
   TARGET_COMPILE_PDB = CMakeFiles/libshell.dir/libshell.pdb
   TARGET_PDB = /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.pdb
 
-build CMakeFiles/libshell.dir/src/libshell/StretchingOperator_Parametric.cpp.o: CXX_COMPILER__libshell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/libshell/StretchingOperator_Parametric.cpp || cmake_object_order_depends_target_libshell
+build CMakeFiles/libshell.dir/src/libshell/ConformalMappingBoundary.cpp.o: CXX_COMPILER__libshell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/libshell/ConformalMappingBoundary.cpp || cmake_object_order_depends_target_libshell
   CONFIG = Release
   DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
-  DEP_FILE = CMakeFiles/libshell.dir/src/libshell/StretchingOperator_Parametric.cpp.o.d
+  DEP_FILE = CMakeFiles/libshell.dir/src/libshell/ConformalMappingBoundary.cpp.o.d
+  FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
+  INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
+  OBJECT_DIR = CMakeFiles/libshell.dir
+  OBJECT_FILE_DIR = CMakeFiles/libshell.dir/src/libshell
+  TARGET_COMPILE_PDB = CMakeFiles/libshell.dir/libshell.pdb
+  TARGET_PDB = /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.pdb
+
+build CMakeFiles/libshell.dir/src/libshell/DirichletEnergyOperator_Inverse.cpp.o: CXX_COMPILER__libshell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/libshell/DirichletEnergyOperator_Inverse.cpp || cmake_object_order_depends_target_libshell
+  CONFIG = Release
+  DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles/libshell.dir/src/libshell/DirichletEnergyOperator_Inverse.cpp.o.d
+  FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
+  INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
+  OBJECT_DIR = CMakeFiles/libshell.dir
+  OBJECT_FILE_DIR = CMakeFiles/libshell.dir/src/libshell
+  TARGET_COMPILE_PDB = CMakeFiles/libshell.dir/libshell.pdb
+  TARGET_PDB = /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.pdb
+
+build CMakeFiles/libshell.dir/src/libshell/EdgeDistortionOperator.cpp.o: CXX_COMPILER__libshell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/libshell/EdgeDistortionOperator.cpp || cmake_object_order_depends_target_libshell
+  CONFIG = Release
+  DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles/libshell.dir/src/libshell/EdgeDistortionOperator.cpp.o.d
+  FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
+  INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
+  OBJECT_DIR = CMakeFiles/libshell.dir
+  OBJECT_FILE_DIR = CMakeFiles/libshell.dir/src/libshell
+  TARGET_COMPILE_PDB = CMakeFiles/libshell.dir/libshell.pdb
+  TARGET_PDB = /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.pdb
+
+build CMakeFiles/libshell.dir/src/libshell/MeshQualityOperator.cpp.o: CXX_COMPILER__libshell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/libshell/MeshQualityOperator.cpp || cmake_object_order_depends_target_libshell
+  CONFIG = Release
+  DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles/libshell.dir/src/libshell/MeshQualityOperator.cpp.o.d
+  FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
+  INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
+  OBJECT_DIR = CMakeFiles/libshell.dir
+  OBJECT_FILE_DIR = CMakeFiles/libshell.dir/src/libshell
+  TARGET_COMPILE_PDB = CMakeFiles/libshell.dir/libshell.pdb
+  TARGET_PDB = /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.pdb
+
+build CMakeFiles/libshell.dir/src/libshell/NonEuclideanConformalMapping.cpp.o: CXX_COMPILER__libshell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/libshell/NonEuclideanConformalMapping.cpp || cmake_object_order_depends_target_libshell
+  CONFIG = Release
+  DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles/libshell.dir/src/libshell/NonEuclideanConformalMapping.cpp.o.d
+  FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
+  INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
+  OBJECT_DIR = CMakeFiles/libshell.dir
+  OBJECT_FILE_DIR = CMakeFiles/libshell.dir/src/libshell
+  TARGET_COMPILE_PDB = CMakeFiles/libshell.dir/libshell.pdb
+  TARGET_PDB = /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.pdb
+
+build CMakeFiles/libshell.dir/src/libshell/Profiler.cpp.o: CXX_COMPILER__libshell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/libshell/Profiler.cpp || cmake_object_order_depends_target_libshell
+  CONFIG = Release
+  DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles/libshell.dir/src/libshell/Profiler.cpp.o.d
+  FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
+  INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
+  OBJECT_DIR = CMakeFiles/libshell.dir
+  OBJECT_FILE_DIR = CMakeFiles/libshell.dir/src/libshell
+  TARGET_COMPILE_PDB = CMakeFiles/libshell.dir/libshell.pdb
+  TARGET_PDB = /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.pdb
+
+build CMakeFiles/libshell.dir/src/libshell/QuadraticFormOperator.cpp.o: CXX_COMPILER__libshell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/libshell/QuadraticFormOperator.cpp || cmake_object_order_depends_target_libshell
+  CONFIG = Release
+  DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
+  DEP_FILE = CMakeFiles/libshell.dir/src/libshell/QuadraticFormOperator.cpp.o.d
   FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
   INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
   OBJECT_DIR = CMakeFiles/libshell.dir
@@ -112,7 +211,7 @@ build CMakeFiles/libshell.dir/src/libshell/StretchingOperator_Parametric.cpp.o: 
 #############################################
 # Link the static library /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.a
 
-build /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.a: CXX_STATIC_LIBRARY_LINKER__libshell_Release CMakeFiles/libshell.dir/src/libshell/BendingOperator_Parametric.cpp.o CMakeFiles/libshell.dir/src/libshell/CombinedOperator_Parametric.cpp.o CMakeFiles/libshell.dir/src/libshell/ComputeCurvatures.cpp.o CMakeFiles/libshell.dir/src/libshell/ComputeHausdorffDistance.cpp.o CMakeFiles/libshell.dir/src/libshell/StretchingOperator_Parametric.cpp.o || /home/pkk5131/workspace/src/PSM2025/lib/libhlbfgs.a /home/pkk5131/workspace/src/PSM2025/lib/libtriangle.a
+build /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.a: CXX_STATIC_LIBRARY_LINKER__libshell_Release CMakeFiles/libshell.dir/src/libshell/AreaDistortionOperator.cpp.o CMakeFiles/libshell.dir/src/libshell/BendingOperator_Parametric.cpp.o CMakeFiles/libshell.dir/src/libshell/CombinedOperator_Parametric.cpp.o CMakeFiles/libshell.dir/src/libshell/CombinedOperator_Parametric_InverseGrowth_Bilayer.cpp.o CMakeFiles/libshell.dir/src/libshell/ComputeCurvatures.cpp.o CMakeFiles/libshell.dir/src/libshell/ComputeErrorMap.cpp.o CMakeFiles/libshell.dir/src/libshell/ComputeHausdorffDistance.cpp.o CMakeFiles/libshell.dir/src/libshell/ConformalMappingBoundary.cpp.o CMakeFiles/libshell.dir/src/libshell/DirichletEnergyOperator_Inverse.cpp.o CMakeFiles/libshell.dir/src/libshell/EdgeDistortionOperator.cpp.o CMakeFiles/libshell.dir/src/libshell/MeshQualityOperator.cpp.o CMakeFiles/libshell.dir/src/libshell/NonEuclideanConformalMapping.cpp.o CMakeFiles/libshell.dir/src/libshell/Profiler.cpp.o CMakeFiles/libshell.dir/src/libshell/QuadraticFormOperator.cpp.o || /home/pkk5131/workspace/src/PSM2025/lib/libhlbfgs.a /home/pkk5131/workspace/src/PSM2025/lib/libtriangle.a
   CONFIG = Release
   LANGUAGE_COMPILE_FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native
   OBJECT_DIR = CMakeFiles/libshell.dir
@@ -131,10 +230,10 @@ build /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.a: CXX_STATIC_LIBRARY_
 
 build cmake_object_order_depends_target_shell: phony || cmake_object_order_depends_target_hlbfgs cmake_object_order_depends_target_libshell cmake_object_order_depends_target_triangle
 
-build CMakeFiles/shell.dir/src/simulations/Sim_Bilayer_4DFilaments.cpp.o: CXX_COMPILER__shell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/simulations/Sim_Bilayer_4DFilaments.cpp || cmake_object_order_depends_target_shell
+build CMakeFiles/shell.dir/src/simulations/Sim_Bilayer_Growth.cpp.o: CXX_COMPILER__shell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/simulations/Sim_Bilayer_Growth.cpp || cmake_object_order_depends_target_shell
   CONFIG = Release
   DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
-  DEP_FILE = CMakeFiles/shell.dir/src/simulations/Sim_Bilayer_4DFilaments.cpp.o.d
+  DEP_FILE = CMakeFiles/shell.dir/src/simulations/Sim_Bilayer_Growth.cpp.o.d
   FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
   INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
   OBJECT_DIR = CMakeFiles/shell.dir
@@ -142,10 +241,10 @@ build CMakeFiles/shell.dir/src/simulations/Sim_Bilayer_4DFilaments.cpp.o: CXX_CO
   TARGET_COMPILE_PDB = CMakeFiles/shell.dir/
   TARGET_PDB = /home/pkk5131/workspace/src/PSM2025/bin/shell.pdb
 
-build CMakeFiles/shell.dir/src/simulations/Sim_IOops.cpp.o: CXX_COMPILER__shell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/simulations/Sim_IOops.cpp || cmake_object_order_depends_target_shell
+build CMakeFiles/shell.dir/src/simulations/Sim_Calibration.cpp.o: CXX_COMPILER__shell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/simulations/Sim_Calibration.cpp || cmake_object_order_depends_target_shell
   CONFIG = Release
   DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
-  DEP_FILE = CMakeFiles/shell.dir/src/simulations/Sim_IOops.cpp.o.d
+  DEP_FILE = CMakeFiles/shell.dir/src/simulations/Sim_Calibration.cpp.o.d
   FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
   INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
   OBJECT_DIR = CMakeFiles/shell.dir
@@ -153,10 +252,10 @@ build CMakeFiles/shell.dir/src/simulations/Sim_IOops.cpp.o: CXX_COMPILER__shell_
   TARGET_COMPILE_PDB = CMakeFiles/shell.dir/
   TARGET_PDB = /home/pkk5131/workspace/src/PSM2025/bin/shell.pdb
 
-build CMakeFiles/shell.dir/src/simulations/Sim_MonoLayer_Growth.cpp.o: CXX_COMPILER__shell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/simulations/Sim_MonoLayer_Growth.cpp || cmake_object_order_depends_target_shell
+build CMakeFiles/shell.dir/src/simulations/Sim_InverseBilayer.cpp.o: CXX_COMPILER__shell_unscanned_Release /home/pkk5131/workspace/src/PSM2025/src/simulations/Sim_InverseBilayer.cpp || cmake_object_order_depends_target_shell
   CONFIG = Release
   DEFINES = -DUSEGSL -DUSEHLBFGS -DUSETRILIBRARY -DUSEVTK -D__TBB_NO_IMPLICIT_LINKAGE=1 -Dkiss_fft_scalar=double
-  DEP_FILE = CMakeFiles/shell.dir/src/simulations/Sim_MonoLayer_Growth.cpp.o.d
+  DEP_FILE = CMakeFiles/shell.dir/src/simulations/Sim_InverseBilayer.cpp.o.d
   FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native -std=c++23 -fopenmp
   INCLUDES = -I/home/pkk5131/workspace/src/PSM2025/src/libshell -I/home/pkk5131/miniconda3/envs/psm/include/eigen3 -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/triangle-src -I/home/pkk5131/workspace/src/PSM2025/external/hlbfgs -I/home/pkk5131/workspace/src/PSM2025/build_cmake/_deps/libigl-src/include -isystem /home/pkk5131/miniconda3/envs/psm/include/vtk-9.3
   OBJECT_DIR = CMakeFiles/shell.dir
@@ -183,7 +282,7 @@ build CMakeFiles/shell.dir/src/simulations/main.cpp.o: CXX_COMPILER__shell_unsca
 #############################################
 # Link the executable /home/pkk5131/workspace/src/PSM2025/bin/shell
 
-build /home/pkk5131/workspace/src/PSM2025/bin/shell: CXX_EXECUTABLE_LINKER__shell_Release CMakeFiles/shell.dir/src/simulations/Sim_Bilayer_4DFilaments.cpp.o CMakeFiles/shell.dir/src/simulations/Sim_IOops.cpp.o CMakeFiles/shell.dir/src/simulations/Sim_MonoLayer_Growth.cpp.o CMakeFiles/shell.dir/src/simulations/main.cpp.o | /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.a /home/pkk5131/miniconda3/envs/psm/lib/libgomp.so /home/pkk5131/miniconda3/envs/psm/x86_64-conda-linux-gnu/sysroot/usr/lib/libpthread.so /home/pkk5131/workspace/src/PSM2025/lib/libtriangle.a /home/pkk5131/workspace/src/PSM2025/lib/libhlbfgs.a /home/pkk5131/miniconda3/envs/psm/lib/libtbb.so /home/pkk5131/miniconda3/envs/psm/lib/libtbbmalloc.so.2 /home/pkk5131/miniconda3/envs/psm/lib/libvtkRenderingCore-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkFiltersSources-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkFiltersCore-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkIOXML-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkIOXMLParser-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkCommonExecutionModel-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkCommonDataModel-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkCommonTransforms-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkCommonMisc-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkCommonMath-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkCommonCore-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtksys-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkkissfft-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libgsl.so /home/pkk5131/miniconda3/envs/psm/lib/libgslcblas.so || /home/pkk5131/workspace/src/PSM2025/lib/libhlbfgs.a /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.a /home/pkk5131/workspace/src/PSM2025/lib/libtriangle.a
+build /home/pkk5131/workspace/src/PSM2025/bin/shell: CXX_EXECUTABLE_LINKER__shell_Release CMakeFiles/shell.dir/src/simulations/Sim_Bilayer_Growth.cpp.o CMakeFiles/shell.dir/src/simulations/Sim_Calibration.cpp.o CMakeFiles/shell.dir/src/simulations/Sim_InverseBilayer.cpp.o CMakeFiles/shell.dir/src/simulations/main.cpp.o | /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.a /home/pkk5131/miniconda3/envs/psm/lib/libgomp.so /home/pkk5131/miniconda3/envs/psm/x86_64-conda-linux-gnu/sysroot/usr/lib/libpthread.so /home/pkk5131/workspace/src/PSM2025/lib/libtriangle.a /home/pkk5131/workspace/src/PSM2025/lib/libhlbfgs.a /home/pkk5131/miniconda3/envs/psm/lib/libtbb.so /home/pkk5131/miniconda3/envs/psm/lib/libtbbmalloc.so.2 /home/pkk5131/miniconda3/envs/psm/lib/libvtkRenderingCore-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkFiltersSources-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkFiltersCore-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkIOXML-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkIOXMLParser-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkCommonExecutionModel-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkCommonDataModel-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkCommonTransforms-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkCommonMisc-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkCommonMath-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkCommonCore-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtksys-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libvtkkissfft-9.3.so.9.3 /home/pkk5131/miniconda3/envs/psm/lib/libgsl.so /home/pkk5131/miniconda3/envs/psm/lib/libgslcblas.so || /home/pkk5131/workspace/src/PSM2025/lib/libhlbfgs.a /home/pkk5131/workspace/src/PSM2025/lib/liblibshell.a /home/pkk5131/workspace/src/PSM2025/lib/libtriangle.a
   CONFIG = Release
   DEP_FILE = CMakeFiles/shell.dir/link.d
   FLAGS = -fvisibility-inlines-hidden -fmessage-length=0 -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/pkk5131/miniconda3/envs/psm/include  -fopenmp -Wall -Wcast-align -Wextra -Wformat-nonliteral -Wformat=2 -Winvalid-pch -Wmissing-format-attribute -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wno-switch-default -Wno-missing-braces -Wno-switch-enum -Wno-suggest-attribute=format -DNDEBUG -O3 -march=native -mtune=native

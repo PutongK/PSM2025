@@ -33,16 +33,32 @@ cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release \
 # Run successful, but need extra libs [GSL] for the env
 conda install -y -c conda-forge gsl
 
-# Make using ninja
-ninja -j"$(nproc)"
+# Make using ninja (with log in build.log)
+ninja -j"$(nproc)" | tee build.log
 
 # To run PSM2025, use the following commands
 # Change directory to a new run folder
+# The original branch2,3,4 folders are deleted to save space
 cd ~/workspace/src/PSM2025
-mkdir -p run/quicktest
-cp bin/shell run/quicktest/
-cd run/quicktest
+rm -rf run/quicktest_branch2
+mkdir -p run/quicktest_branch3
+cp bin/shell run/quicktest_branch3/
+cd run/quicktest_branch3
 
 # run
 ./shell -sim monolayer_growth -case basic_disk -h 0.01 -innerR 0.05 -res 128 -s1 0.05 -s2 0.0
 
+# Test run
+time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.025 -ly 0.025 \
+  -res 0.01 \
+  -h_total 0.0005 \
+  -growth_type homo \
+  -growth_top  0.002 \
+  -growth_bot -0.001 \
+  -growth_angle 0.0 \
+  -ortho_coeff 0.0 \
+  -nsteps 5

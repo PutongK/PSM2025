@@ -9,7 +9,6 @@
 #include "gtest/gtest.h"
 
 #include "common.hpp"
-#include "Timer.hpp"
 #include "Geometry.hpp"
 #include "Mesh.hpp"
 #include "MaterialProperties.hpp"
@@ -81,12 +80,8 @@ protected:
         gradient_vertices_exact.setZero();
         gradient_edges_exact.setZero();
         
-        Timer<std::chrono::milliseconds> timer;
-        timer.start();
-        
         mesh.updateDeformedConfiguration();
         meshoperator.compute(mesh, gradient_vertices_exact, gradient_edges_exact);
-        timer.stop();
        
         // compute the approximate gradient
         Eigen::MatrixXd gradient_vertices_approx(nVertices,3);
@@ -98,12 +93,7 @@ protected:
         Derivative_FD<tMesh, tEnergyOperatorDCS> derivative_FD(order, mesh, meshoperator, eps);
         
         // compute gradient using finite differences
-        timer.reset();
-        timer.start();
-
         derivative_FD.computeGradient(gradient_vertices_approx, gradient_edges_approx);
-        
-        timer.stop();
         
 //        std::cout << "Approx gradient (order=" << order+1 << ") took " << timer.totTime << " ms" << std::endl;
 

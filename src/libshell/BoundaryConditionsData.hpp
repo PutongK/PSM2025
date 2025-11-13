@@ -169,6 +169,21 @@ struct BoundaryConditionsData
         return clampedEdgeNormalsIndices;
     }
     
+    void writeToFile(const std::string & basename) const
+    {
+        helpers::write_matrix_binary(basename+"_bc_vertices.dat", vertices_bc);
+        helpers::write_matrix_binary(basename+"_bc_edges.dat", edges_bc);
+        helpers::write_matrix_binary(basename+"_bc_clamped_edges_normals.dat", clampedEdgeNormals);
+        helpers::write_intintmap_binary(basename+"_bc_clamped_edges_idx.dat", clampedEdgeNormalsIndices);
+    }
+    
+    void readFromFile(const std::string & basename) 
+    {
+        helpers::read_matrix_binary(basename+"_bc_vertices.dat", vertices_bc);
+        helpers::read_matrix_binary(basename+"_bc_edges.dat", edges_bc);
+        helpers::read_matrix_binary(basename+"_bc_clamped_edges_normals.dat", clampedEdgeNormals);
+        helpers::read_intintmap_binary(basename+"_bc_clamped_edges_idx.dat", clampedEdgeNormalsIndices);
+    }
 };
 
 #endif /* BoundaryConditionsData_hpp */

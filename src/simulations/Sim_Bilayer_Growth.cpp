@@ -105,7 +105,7 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     growthRates_t.setZero();
 
     // Debug: Give declaration
-    // --- helpers for quick sanity prints (must be in outer scope so both prints can use them)
+    // --- helpers for quick sanity prints
     auto nnz = [](const Eigen::VectorXd& v, double eps=1e-20){
         return (v.array().abs() > eps).count();
     };
@@ -1211,10 +1211,25 @@ void Sim_Bilayer_Growth::dumpIso(const Eigen::Ref<const Eigen::VectorXd> growthR
     writer.addScalarFieldToFaces(mean, "mean");
 
     writer.write(filename);
+
+    // Optional: also write deformed STL (geometry only)
+    const bool export_stl = parser.parse<bool>("-export_stl", false);
+    const bool stl_ascii  = parser.parse<bool>("-stl_ascii", false);
+    
+    // Only write STL for FINAL dumps (and only for current config)
+    auto ends_with = [](const std::string& s, const std::string& suf) {
+      return s.size() >= suf.size() &&
+            s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
+    };
+
+    const bool is_final = ends_with(filename, "_final");
+
+    if (export_stl && is_final && !restConfig)
+    {
+        WriteSTL::write(mesh.getTopology(), mesh.getCurrentConfiguration(),
+                        filename + "_deformed", stl_ascii);
+    }
 }
-
-
-
 
 void Sim_Bilayer_Growth::dumpOrtho(Eigen::Ref<Eigen::VectorXd> growthRates_1_bot, Eigen::Ref<Eigen::VectorXd> growthRates_2_bot, Eigen::Ref<Eigen::VectorXd> growthRates_1_top, Eigen::Ref<Eigen::VectorXd> growthRates_2_top, const Eigen::Ref<const Eigen::VectorXd> growthAngles, const std::string filename, const bool restConfig)
 {
@@ -1286,6 +1301,24 @@ void Sim_Bilayer_Growth::dumpOrtho(Eigen::Ref<Eigen::VectorXd> growthRates_1_bot
   writer.addScalarFieldToFaces(growthRates_2_top, "rate2_top");
 
   writer.write(filename);
+
+  const bool export_stl = parser.parse<bool>("-export_stl", false);
+  const bool stl_ascii  = parser.parse<bool>("-stl_ascii", false);
+
+  // Only write STL for FINAL dumps (and only for current config)
+  auto ends_with = [](const std::string& s, const std::string& suf) {
+    return s.size() >= suf.size() &&
+           s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
+  };
+
+  const bool is_final = ends_with(filename, "_final");
+
+  if (export_stl && is_final && !restConfig)
+  {
+      WriteSTL::write(mesh.getTopology(), mesh.getCurrentConfiguration(),
+                      filename + "_deformed", stl_ascii);
+  }
+
 }
 
 

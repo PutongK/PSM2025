@@ -4,6 +4,7 @@
 //
 //  Created by Wim van Rees on 10/27/16.
 //  Modified by Vladislav Sushitskii on 03/29/22.
+//  Modified by Putong Kang on 06/10/24.
 //  Copyright © 2022 Wim van Rees and Vladislav Sushitskii. All rights reserved.
 //
 
@@ -14,6 +15,35 @@
 #include "CombinedOperator_Parametric.hpp"
 #include "EnergyOperatorList.hpp"
 #include "ComputeCurvatures.hpp"
+
+// ver-0122
+#include <sstream>
+#include <algorithm>
+#include <cctype>
+
+// ver-0203
+#include "ZigZagGrowth.hpp"
+
+static std::vector<int> parse_int_list(const std::string& s)
+{
+    std::vector<int> out;
+    std::string cleaned = s;
+
+    // Replace commas with spaces so we can stream >> ints
+    for(char& c : cleaned)
+        if(c == ',') c = ' ';
+
+    std::stringstream ss(cleaned);
+    int v;
+    while(ss >> v)
+    {
+        if(v > 0) out.push_back(v);
+    }
+
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
 
 void Sim_Bilayer_Growth::run()
 {
@@ -30,9 +60,7 @@ void Sim_Bilayer_Growth::run()
     }
 }
 
-
-
-
+// Custom growth patterns
 void Sim_Bilayer_Growth::TestCustomGrowth()
 {
     const std::string growth_type = parser.parse<std::string>("-growth_type","chess");
@@ -40,9 +68,12 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     // - homo (uniform expansion)
     // - chess (the checkerboard pattern)
     // - center (rectangular zone in the center of the plate)
+    // - patch (rectangular zone in the center of the plate, with self-defined size and offset)
     // - wave (half of the plate is expanding on the bottom side, and half - on the top side)
     // - circle (circular zone in the center of the plate)
     // - external (projection of a pattern coming from another mesh)
+    // - zigzag (zigzag pattern) New function added ver-0203
+   
     const std::string geometryCase = parser.parse<std::string>("-geometry", ""); //see initForwardProblem()
     const Real margin_x = parser.parse<Real>("-margin_x", 0.0); // margins to simulate the clamping frame: no eigensrain in this zone. 0.001 = 1mm
     const Real margin_y = parser.parse<Real>("-margin_y", 0.0);
@@ -58,7 +89,8 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     Real growthRate_t = parser.parse<Real>("-growth_top", 0.001);
     Real growthRate_b = parser.parse<Real>("-growth_bot", -0.001);
 
-    const Real growthAngle = parser.parse<Real>("-growth_angle", 0.0)*M_PI; // principal growth direction (angle with respect to x-axis)
+    // Correct angle conversion: degrees to radians
+    const Real growthAngle = parser.parse<Real>("-growth_angle", 0.0)*M_PI/180.0; // principal growth direction (angle with respect to x-axis)
     const Real ortho_coeff = parser.parse<Real>("-ortho_coeff", 0.0); // orthotropy coefficient
 
     auto Vertices = mesh.getCurrentConfiguration().getVertices();
@@ -71,6 +103,25 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     Eigen::VectorXd growthRates_t(nFaces);
     growthRates_b.setZero();
     growthRates_t.setZero();
+
+    // Debug: Give declaration
+    // --- helpers for quick sanity prints (must be in outer scope so both prints can use them)
+    auto nnz = [](const Eigen::VectorXd& v, double eps=1e-20){
+        return (v.array().abs() > eps).count();
+    };
+    auto vmin = [](const Eigen::VectorXd& v){
+        return v.size() ? v.minCoeff() : 0.0;
+    };
+    auto vmax = [](const Eigen::VectorXd& v){
+        return v.size() ? v.maxCoeff() : 0.0;
+    };
+
+    // ver -0203: Added declaration for zigzag growth
+    Eigen::VectorXd growthAngles = Eigen::VectorXd::Constant(nFaces, growthAngle);
+    Eigen::VectorXd orthoCoeffFaces = Eigen::VectorXd::Constant(nFaces, ortho_coeff);
+
+    // Debug
+    std::cout << "[growth] growth_type = '" << growth_type << "'\n";
 
     if (growth_type == "homo"){
       growthRates_b = Eigen::VectorXd::Constant(nFaces, growthRate_b);
@@ -147,19 +198,69 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
 
       for (int i=0; i<nFaces; ++i){
         if (IndicV(Connect(i,0))==1 && IndicV(Connect(i,1))==1 && IndicV(Connect(i,2))==1) {
-          //growthRates_b(i) = growthRate_b;
-          //growthRates_t(i) = growthRate_t;
-          growthRates_t(i) = 0.0;
-          growthRates_b(i) = 0.0;
-        }
-        else{
-          //growthRates_t(i) = 0.0;
-          //growthRates_b(i) = 0.0;
           growthRates_b(i) = growthRate_b;
           growthRates_t(i) = growthRate_t;
+          //growthRates_t(i) = 0.0;
+          //growthRates_b(i) = 0.0;
+        }
+        else{
+          growthRates_t(i) = 0.0;
+          growthRates_b(i) = 0.0;
+          //growthRates_b(i) = growthRate_b;
+          //growthRates_t(i) = growthRate_t;
         }
       }
     }
+
+    else if (growth_type == "patch") {
+      const Real Lx = parser.parse<Real>("-lx", 0.5);
+      const Real Ly = parser.parse<Real>("-ly", 0.5);
+
+      const Real patch_lx = parser.parse<Real>("-patch_lx", 0.120);
+      const Real patch_ly = parser.parse<Real>("-patch_ly", 0.010);
+
+      // Patch placement: distance from the LEFT end (x = -Lx) to the patch's left edge
+      const Real patch_x_from_left = parser.parse<Real>("-patch_x_from_left", 0.120);
+
+      // Optional: centerline offset in y (default 0 means centered)
+      const Real patch_yc = parser.parse<Real>("-patch_yc", 0.0);
+
+      // Compute patch bounds in centered coordinates
+      const Real x_min = (-Lx) + patch_x_from_left;
+      const Real x_max = x_min + patch_lx;
+
+      const Real y_min = patch_yc - 0.5*patch_ly;
+      const Real y_max = patch_yc + 0.5*patch_ly;
+
+      // 1) Vertex indicator: inside patch
+      for (int i = 0; i < nVert; ++i) {
+        const Real x = Vertices(i, 0);
+        const Real y = Vertices(i, 1);
+
+        if (x >= x_min && x <= x_max && y >= y_min && y <= y_max) {
+          IndicV(i) = 1;
+        } else {
+          IndicV(i) = 0;
+        }
+      }
+
+      // 2) Face mask: apply growth only if entire triangle is inside
+      for (int i = 0; i < nFaces; ++i) {
+        const bool inPatch =
+          (IndicV(Connect(i, 0)) == 1 &&
+          IndicV(Connect(i, 1)) == 1 &&
+          IndicV(Connect(i, 2)) == 1);
+
+        if (inPatch) {
+          growthRates_b(i) = growthRate_b;
+          growthRates_t(i) = growthRate_t;
+        } else {
+          growthRates_b(i) = 0.0;
+          growthRates_t(i) = 0.0;
+        }
+      }
+    }
+
     else if (growth_type == "wave"){
 
       const bool sym_x = parser.parse<bool>("-sym_x", false);
@@ -310,7 +411,67 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
         mesh.getCurrentConfiguration().getVertices() = Vertices;
         mesh.getRestConfiguration().getVertices() = Vertices;
       }
+    }
 
+      // ver-0203 ADDED zigzag pattern
+      else if (growth_type == "zigzag")
+      {
+        std::cout << "[zigzag] ENTER (TestCustomGrowth) line=" << __LINE__ << "\n"; // For debug
+
+        // ---- CLI (mm units) ----
+        const Real Lv_mm     = parser.parse<Real>("-zigzag_lv_mm", 40.0);
+        const Real alpha_deg = parser.parse<Real>("-zigzag_alpha_deg", 15.0); // relative to vertical
+        const int  N_total   = parser.parse<int> ("-zigzag_N", 6);
+        const Real w_mm      = parser.parse<Real>("-zigzag_w_mm", 2.0);
+
+        // per-strip grouped parameters (length = N_total)
+        const std::string gtop_s  = parser.parse<std::string>("-zigzag_gtop_list", "");
+        const std::string gbot_s  = parser.parse<std::string>("-zigzag_gbot_list", "");
+        const std::string ortho_s = parser.parse<std::string>("-zigzag_ortho_list", "");
+
+        // defaults fall back to global values if lists not provided
+        const Real gtop_default  = growthRate_t;
+        const Real gbot_default  = growthRate_b;
+        const Real ortho_default = ortho_coeff;
+
+        std::vector<double> gtop_list(N_total, gtop_default);
+        std::vector<double> gbot_list(N_total, gbot_default);
+        std::vector<double> ortho_list(N_total, ortho_default);
+
+        if(!gtop_s.empty())  gtop_list  = zigzag::parseCommaListReal(gtop_s,  N_total, gtop_default);
+        if(!gbot_s.empty())  gbot_list  = zigzag::parseCommaListReal(gbot_s,  N_total, gbot_default);
+        if(!ortho_s.empty()) ortho_list = zigzag::parseCommaListReal(ortho_s, N_total, ortho_default);
+
+        zigzag::Params zz;
+        zz.Lv_mm      = Lv_mm;
+        zz.alpha_deg  = alpha_deg;
+        zz.N_total    = N_total;
+        zz.w_mm       = w_mm;
+        zz.last_wins  = true;
+        zz.start_mode = zigzag::StartMode::LeftBottom_Up; // your preference
+
+        // debug: print parsed parameters
+        std::cout << "[zigzag] gtop_list size=" << gtop_list.size()
+          << " gbot_list size=" << gbot_list.size()
+          << " ortho_list size=" << ortho_list.size()
+          << "\n";
+
+        zigzag::apply(mesh, zz, gtop_list, gbot_list, ortho_list,
+                      growthRates_t, growthRates_b,
+                      growthAngles, orthoCoeffFaces);
+
+        // Debug, print nonzero counts + min/max
+        std::cout << "[zigzag] list sizes: gtop=" << gtop_list.size()
+          << " gbot=" << gbot_list.size()
+          << " ortho=" << ortho_list.size()
+          << "\n";
+
+        std::cout << "[zigzag] after apply: "
+                  << "nnz_top=" << nnz(growthRates_t)
+                  << " nnz_bot=" << nnz(growthRates_b)
+                  << " top[min,max]=[" << vmin(growthRates_t) << "," << vmax(growthRates_t) << "]"
+                  << " bot[min,max]=[" << vmin(growthRates_b) << "," << vmax(growthRates_b) << "]\n";
+      }
 
       else {
         const std::string growth_tag = parser.template parse<std::string>("-growth_tag", "");
@@ -418,26 +579,37 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
           }
         }
       }
-    }
-
-    
 
     if (margin_x > 0.0 || margin_y > 0.0) MarginCut(margin_x, margin_y, growthRates_b, growthRates_t);
 
-    const Eigen::VectorXd growthAngles = Eigen::VectorXd::Constant(nFaces, growthAngle);
+    // Debug, print nonzero counts + min/max
+    std::cout << "[zigzag] after MarginCut: "
+          << "nnz_top=" << nnz(growthRates_t)
+          << " nnz_bot=" << nnz(growthRates_b)
+          << " top[min,max]=[" << vmin(growthRates_t) << "," << vmax(growthRates_t) << "]"
+          << " bot[min,max]=[" << vmin(growthRates_b) << "," << vmax(growthRates_b) << "]\n";
+
+    // const Eigen::VectorXd growthAngles = Eigen::VectorXd::Constant(nFaces, growthAngle);
 
     Eigen::VectorXd growthRates_1_t(nFaces);
     Eigen::VectorXd growthRates_1_b(nFaces);
     Eigen::VectorXd growthRates_2_t(nFaces);
     Eigen::VectorXd growthRates_2_b(nFaces);
 
-    for (int i=0; i<nFaces; i++){
-      growthRates_1_t(i) = growthRates_t(i)*(1.0+ortho_coeff);
-      growthRates_1_b(i) = growthRates_b(i)*(1.0+ortho_coeff);
-      growthRates_2_t(i) = growthRates_t(i)*(1.0-ortho_coeff);
-      growthRates_2_b(i) = growthRates_b(i)*(1.0-ortho_coeff);
-    }
+    // for (int i=0; i<nFaces; i++){
+    //   growthRates_1_t(i) = growthRates_t(i)*(1.0+ortho_coeff);
+    //   growthRates_1_b(i) = growthRates_b(i)*(1.0+ortho_coeff);
+    //   growthRates_2_t(i) = growthRates_t(i)*(1.0-ortho_coeff);
+    //   growthRates_2_b(i) = growthRates_b(i)*(1.0-ortho_coeff);
+    // }
 
+    for (int i=0; i<nFaces; i++){
+      const Real oc = orthoCoeffFaces(i);
+      growthRates_1_t(i) = growthRates_t(i)*(1.0+oc);
+      growthRates_1_b(i) = growthRates_b(i)*(1.0+oc);
+      growthRates_2_t(i) = growthRates_t(i)*(1.0-oc);
+      growthRates_2_b(i) = growthRates_b(i)*(1.0-oc);
+    }
 
     GrowthHelper<tMesh>::computeAbarsOrthoGrowth(mesh, growthAngles, growthRates_1_b, growthRates_2_b, mesh.getRestConfiguration().getFirstFundamentalForms<bottom>());
     GrowthHelper<tMesh>::computeAbarsOrthoGrowth(mesh, growthAngles, growthRates_1_t, growthRates_2_t, mesh.getRestConfiguration().getFirstFundamentalForms<top>());
@@ -458,7 +630,12 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     // dump 0 swelling rate (initial condition) for nicer movies afterwards
     dumpOrtho(growthRates_1_b, growthRates_2_b, growthRates_1_t, growthRates_2_t, growthAngles, tag+"_final_"+helpers::ToString(0,2));
 
+    // ver-0122, parse CLI args once and pass to the minimize call in TestCustomGrowth()
+    const std::string dump_iters_str = parser.parse<std::string>("-dump_iters", "");
+    const std::vector<int> dump_iters = parse_int_list(dump_iters_str);
+    const int max_iter = parser.parse<int>("-max_iter", -1);
 
+    // swelling loop
     const int nSwellingRuns = parser.parse<int>("-nsteps", 1);
     const Real swelling_step = 1.0/((Real)nSwellingRuns);
     const int startidx = 0;
@@ -473,9 +650,18 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
         GrowthHelper<tMesh>::computeAbarsOrthoGrowth(mesh, growthAngles, growthRates_1_b, growthRates_2_b, mesh.getRestConfiguration().getFirstFundamentalForms<bottom>());
         GrowthHelper<tMesh>::computeAbarsOrthoGrowth(mesh, growthAngles, growthRates_1_t, growthRates_2_t, mesh.getRestConfiguration().getFirstFundamentalForms<top>());
 
-        // minimize energy
+        // minimize energy, old version
+        // Real eps = 1e-2;
+        // minimizeEnergy(engOps, eps);
+
+        // ver-0122
         Real eps = 1e-2;
-        minimizeEnergy(engOps, eps);
+        minimizeEnergy(engOps, eps,
+                      std::numeric_limits<Real>::epsilon(),
+                      false,
+                      //(dump_iters.empty() ? nullptr : &dump_iters),
+                      &dump_iters,
+                      max_iter);
 
         // dump
         // dumpIso(growthRates_b, growthRates_t, curTag);
@@ -836,6 +1022,11 @@ void Sim_Bilayer_Growth::TestRandomPatterns()
       // dump
       dumpIso(growthRates_bot_eqv, growthRates_top_eqv, tag+"_init");
 
+      // ver-0122, parse CLI args once and pass to the minimize call in TestCustomGrowth()
+      const std::string dump_iters_str = parser.parse<std::string>("-dump_iters", "");
+      const std::vector<int> dump_iters = parse_int_list(dump_iters_str);
+      const int max_iter = parser.parse<int>("-max_iter", -1);
+
       const int nSwellingRuns = parser.parse<int>("-nsteps", 1);
       const Real steppo = 1.0/nSwellingRuns;
 
@@ -847,8 +1038,17 @@ void Sim_Bilayer_Growth::TestRandomPatterns()
           // apply swelling
           GrowthHelper<tMesh>::computeAbarsIsoGrowth(mesh, swelling_fac*growthRates_bot_eqv, mesh.getRestConfiguration().getFirstFundamentalForms<bottom>());
           GrowthHelper<tMesh>::computeAbarsIsoGrowth(mesh, swelling_fac*growthRates_top_eqv, mesh.getRestConfiguration().getFirstFundamentalForms<top>());
+          
+          // old version
+          // Real eps = 1e-2;
+          // minimizeEnergy(engOps_eqv, eps);
+
           Real eps = 1e-2;
-          minimizeEnergy(engOps_eqv, eps);
+          minimizeEnergy(engOps_eqv, eps,
+                        std::numeric_limits<Real>::epsilon(),
+                        false,
+                        (dump_iters.empty() ? nullptr : &dump_iters),
+                        max_iter);
 
       }
 
@@ -905,6 +1105,7 @@ void Sim_Bilayer_Growth::initForwardProblem()
       const Real relArea = 2.0*Lx*res;
       RectangularPlate_RightAngle geometry(Lx, Ly, relArea, false, false);
       mesh.init(geometry);
+
     }
     else if (geometryCase == "rectangle_allclamped")
     // regular mesh
@@ -961,10 +1162,30 @@ void Sim_Bilayer_Growth::initForwardProblem()
 
 void Sim_Bilayer_Growth::dumpIso(const Eigen::Ref<const Eigen::VectorXd> growthRates_bot, const Eigen::Ref<const Eigen::VectorXd> growthRates_top, const std::string filename, const bool restConfig)
 {
-    const auto cvertices = restConfig ? mesh.getRestConfiguration().getVertices() : mesh.getCurrentConfiguration().getVertices();;
+    // const auto cvertices = restConfig ? mesh.getRestConfiguration().getVertices() : mesh.getCurrentConfiguration().getVertices();;
+    // const auto cface2vertices = mesh.getTopology().getFace2Vertices();
+
+    // WriteVTK writer(cvertices, cface2vertices);
+
+    // New version for displacement field
+    // --- Always write geometry in REST configuration (reference mesh) ---
+    const auto X0 = mesh.getRestConfiguration().getVertices();      // nV x 3
+    const auto X  = mesh.getCurrentConfiguration().getVertices();   // nV x 3
     const auto cface2vertices = mesh.getTopology().getFace2Vertices();
 
-    WriteVTK writer(cvertices, cface2vertices);
+    WriteVTK writer(X0, cface2vertices);
+
+    // --- Displacement fields (PointData) ---
+    Eigen::MatrixXd U = X - X0;                   // nV x 3
+    Eigen::VectorXd U3 = U.col(2);                // nV
+    Eigen::VectorXd Umag = U.rowwise().norm();    // nV
+
+    writer.addVectorFieldToVertices(U, "U");
+    writer.addScalarFieldToVertices(U3, "U3");
+    writer.addScalarFieldToVertices(Umag, "Umag");
+    writer.addVectorFieldToVertices(X, "X_current"); // helpful for debugging
+
+    // --- Growth fields (existing face/vertex logic) ---
     if(growthRates_bot.rows() == mesh.getNumberOfFaces())
     {
         writer.addScalarFieldToFaces(growthRates_bot, "growthrates_bot");
@@ -997,11 +1218,31 @@ void Sim_Bilayer_Growth::dumpIso(const Eigen::Ref<const Eigen::VectorXd> growthR
 
 void Sim_Bilayer_Growth::dumpOrtho(Eigen::Ref<Eigen::VectorXd> growthRates_1_bot, Eigen::Ref<Eigen::VectorXd> growthRates_2_bot, Eigen::Ref<Eigen::VectorXd> growthRates_1_top, Eigen::Ref<Eigen::VectorXd> growthRates_2_top, const Eigen::Ref<const Eigen::VectorXd> growthAngles, const std::string filename, const bool restConfig)
 {
-  const auto cvertices = restConfig ? mesh.getRestConfiguration().getVertices() : mesh.getCurrentConfiguration().getVertices();
+  // const auto cvertices = restConfig ? mesh.getRestConfiguration().getVertices() : mesh.getCurrentConfiguration().getVertices();
+  // const auto cface2vertices = mesh.getTopology().getFace2Vertices();
+  // const int nFaces = mesh.getNumberOfFaces();
+  // WriteVTK writer(cvertices, cface2vertices);
+
+  // new version for displacement field
+  // --- Always write geometry in REST configuration (reference mesh) ---
+  const auto X0 = mesh.getRestConfiguration().getVertices();      // nV x 3
+  const auto X  = mesh.getCurrentConfiguration().getVertices();   // nV x 3
   const auto cface2vertices = mesh.getTopology().getFace2Vertices();
   const int nFaces = mesh.getNumberOfFaces();
-  WriteVTK writer(cvertices, cface2vertices);
 
+  WriteVTK writer(X0, cface2vertices);
+
+  // --- Displacement field (Abaqus-like U) as PointData ---
+  Eigen::MatrixXd U = X - X0;                   // nV x 3
+  Eigen::VectorXd U3 = U.col(2);                // nV
+  Eigen::VectorXd Umag = U.rowwise().norm();    // nV
+
+  writer.addVectorFieldToVertices(U, "U");
+  writer.addScalarFieldToVertices(U3, "U3");
+  writer.addScalarFieldToVertices(Umag, "Umag");
+  writer.addVectorFieldToVertices(X, "X_current");
+
+  // --- Existing state handles ---
   const TopologyData & topology = mesh.getTopology();
   const tReferenceConfigData & restState = mesh.getRestConfiguration();
   const tCurrentConfigData & currentState = mesh.getCurrentConfiguration();

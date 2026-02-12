@@ -13,6 +13,7 @@
 
 #include "HLBFGS.h"
 #include "Profiler.hpp"
+#include "WriteVTK.hpp"
 
 namespace HLBFGS_Methods
 {
@@ -83,6 +84,7 @@ namespace HLBFGS_Methods
             
             info[3] = 1;
             info[4] = 1e9;
+            //info[4] = (max_iter_override > 0) ? max_iter_override : (int)1e9; //ver-0122, allow override of max iterations
             info[5] = verbose ? 1 : 0;
             info[6] = 0;
             info[7] = 0;
@@ -165,7 +167,17 @@ namespace HLBFGS_Methods
         const int nVariables;
         std::string outFileName;
         Real last_gnorm;
-        
+
+        // ver-0122, add dump control and max iter control
+        // ---- intermediate dump control ----
+        bool dump_enabled = false;
+        std::vector<int> dump_iters;
+        std::size_t next_dump_idx = 0;
+        std::string dump_prefix;
+
+        // ---- max iteration control ----
+        int max_iter_override = -1; // -1 means: use default behavior
+
     public:
         HLBFGS_Energy(tMesh & mesh, const tMeshOperator & engop):
         mesh(mesh),
@@ -174,6 +186,34 @@ namespace HLBFGS_Methods
         outFileName("hlbfgs_output.dat"),
         last_gnorm(-1)
         {}
+
+        // Enable dumps at specified optimizer iterations. Add on functions to set dump schedule and max iterations.
+        // Ver-0122
+        void set_dump_schedule(const std::string& prefix, const std::vector<int>& iters)
+        {
+        std::cout << "[HLBFGS] set_dump_schedule called: iters_size=" << iters.size()
+          << " prefix=" << prefix << std::endl;
+
+        if(!iters.empty())
+        {
+            std::cout << "[HLBFGS] dump schedule enabled: " << iters.size()
+                    << " dumps, first=" << iters.front()
+                    << ", last=" << iters.back()
+                    << std::endl;
+        }
+        dump_prefix = prefix;
+        dump_iters = iters;
+        next_dump_idx = 0;
+        dump_enabled = !dump_iters.empty();
+        }
+
+        // Optional: allow overriding max iterations (keeps default unchanged if not called)
+        void set_max_iter(int max_iter)
+        {
+        // ver-0122, for debugging
+        std::cout << "[HLBFGS] max_iter override set to " << max_iter_override << std::endl;
+        max_iter_override = max_iter;
+        }
         
         /**
          * Perform the actual energy minimization up to relative accuracy eps
@@ -195,6 +235,11 @@ namespace HLBFGS_Methods
             double parameter[20];
             int info[20];
             default_setup(parameter, info, eps, verbose);
+
+            // ver-0122
+            // Optional override of maximum iterations (default unchanged if max_iter_override <= 0)
+            if(max_iter_override > 0)
+                info[4] = max_iter_override;
             
             const int ret = HLBFGS(nVariables, Mval, x, HLBFGS_Methods::evaluate, 0, HLBFGS_UPDATE_Hessian, HLBFGS_Methods::newiteration, this, parameter, info);
             
@@ -247,6 +292,40 @@ namespace HLBFGS_Methods
         void newiteration(int iter, int call_iter, double* /* x */, double* f, double* /* g */,  double* gnorm) override
         {
             last_gnorm = *gnorm;
+
+            //ver-0122, for debugging
+            if (iter == 1) {
+                std::cout << "[HLBFGS] newiteration running. dump_enabled=" << dump_enabled
+                        << " next_dump_idx=" << next_dump_idx
+                        << " dump_iters_size=" << dump_iters.size() << std::endl;
+            }
+
+
+            // ---- scheduled intermediate dumps (true continuous trajectory) ----
+            // ver-0122/0126
+            if (dump_enabled && next_dump_idx < dump_iters.size())
+            {
+            // robust trigger: if iter has reached or passed the next requested dump iteration
+            if (iter >= dump_iters[next_dump_idx])
+            {
+                // Ensure the geometry reflects the current iterate before writing
+                mesh.updateDeformedConfiguration();
+
+                // Use same IO convention as existing code: do NOT force ".vtp"
+                // mesh.writeToFile(dump_prefix + "_mesh_iter_" + std::to_string(dump_iters[next_dump_idx]));
+
+                // Use VTK format for better compatibility with ParaView, version 0126
+                const auto cvertices = mesh.getCurrentConfiguration().getVertices();
+                const auto cface2vertices = mesh.getTopology().getFace2Vertices();
+
+                // write .vtp (WriteVTK appends ".vtp")
+                WriteVTK writer(cvertices, cface2vertices);
+                writer.write(dump_prefix + "_mesh_iter_" + std::to_string(dump_iters[next_dump_idx]));
+
+                next_dump_idx++;
+            }
+            }
+            // ---- end intermediate dumps ----
             
             if(iter%1000==0 and verbose)
             {

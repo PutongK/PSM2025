@@ -178,8 +178,16 @@ protected:
 
 
     template<typename tMeshOperator, bool verbose = true>
-    int minimizeEnergy(const tMeshOperator & op, Real & eps, const Real epsMin=std::numeric_limits<Real>::epsilon(), const bool stepWise = false)
+    int minimizeEnergy(const tMeshOperator & op, Real & eps, 
+        const Real epsMin=std::numeric_limits<Real>::epsilon(), const bool stepWise = false,
+        //ver-0122,set dump control and max iter control
+        const std::vector<int>* dump_iters_ptr = nullptr,
+                   const int max_iter = -1)
     {
+        std::cout << "[Sim] minimizeEnergy extended args received. "
+          << "dump_ptr=" << (dump_iters_ptr != nullptr)
+          << " max_iter=" << max_iter << std::endl;
+
 #ifdef USELIBLBFGS
         // use the LBFGS_Energy class to directly minimize the energy on the mesh with these operators
         // LBFGS does not use the hessian
@@ -194,6 +202,27 @@ protected:
 #ifdef USEHLBFGS
 
         HLBFGS_Methods::HLBFGS_Energy<tMesh, tMeshOperator, verbose> hlbfgs_wrapper(mesh, op);
+        // For debugging 0126
+        std::cout << "[Sim] setting HLBFGS controls: dump_size="
+          << (dump_iters_ptr ? dump_iters_ptr->size() : 0)
+          << " max_iter=" << max_iter << std::endl;
+
+        // if(dump_iters_ptr != nullptr)
+        //     hlbfgs_wrapper.set_dump_schedule(tag, *dump_iters_ptr);
+
+        // if(max_iter > 0)
+        //     hlbfgs_wrapper.set_max_iter(max_iter);
+
+        // back to original logic
+        // ver-0122 
+        // Optional: intermediate iteration dumps (true continuous trajectory)
+        if(dump_iters_ptr != nullptr && !dump_iters_ptr->empty())
+            hlbfgs_wrapper.set_dump_schedule(tag, *dump_iters_ptr);
+
+        // Optional: override max iterations (default unchanged if max_iter <= 0)
+        if(max_iter > 0)
+            hlbfgs_wrapper.set_max_iter(max_iter);
+
         int retval = 0;
         if(stepWise)
         {
@@ -208,6 +237,7 @@ protected:
             retval = hlbfgs_wrapper.minimize(tag+"_diagnostics.dat", epsMin);
             eps = hlbfgs_wrapper.get_lastnorm();
         }
+
 #else
         std::cout << "should use liblbfgs or hlbfgs\n";
 #endif

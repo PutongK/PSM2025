@@ -19,7 +19,7 @@ cd ~/workspace/src/PSM2025/external
 mv HLBFGS hlbfgs
 
 # Configure & build PSM2025 using this env
-cd ~/PSM2025
+cd ~/workspace/src/PSM2025
 rm -rf build_cmake
 mkdir build_cmake && cd build_cmake
 
@@ -41,9 +41,9 @@ ninja -j"$(nproc)" | tee build.log
 # The original branch2,3,4 folders are deleted to save space
 cd ~/workspace/src/PSM2025
 rm -rf run/quicktest_branch2
-mkdir -p run/quicktest_branch3
-cp bin/shell run/quicktest_branch3/
-cd run/quicktest_branch3
+mkdir -p run/quicktest_branch5
+cp bin/shell run/quicktest_branch5/
+cd run/quicktest_branch5
 
 # run
 ./shell -sim monolayer_growth -case basic_disk -h 0.01 -innerR 0.05 -res 128 -s1 0.05 -s2 0.0
@@ -57,8 +57,117 @@ time ./shell \
   -res 0.01 \
   -h_total 0.0005 \
   -growth_type homo \
-  -growth_top  0.002 \
-  -growth_bot -0.001 \
+  -growth_top  0.012 \
+  -growth_bot 0.000 \
   -growth_angle 0.0 \
   -ortho_coeff 0.0 \
-  -nsteps 5
+  -nsteps 1
+
+# EW cases
+# Test run
+time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.152 -ly 0.025 \
+  -res 0.01 \
+  -h_total 0.0006 \
+  -growth_type homo \
+  -growth_top  0.001 \
+  -growth_bot 0.000 \
+  -growth_angle 0.0 \
+  -ortho_coeff 0.0 \
+  -nsteps 2
+
+# Test run with partial orth
+time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.152 -ly 0.025 \
+  -res 0.01 \
+  -h_total 0.0006 \
+  -growth_type homo \
+  -growth_top  0.001 \
+  -growth_bot 0.000 \
+  -growth_angle 10.0 \
+  -ortho_coeff 0.5 \
+  -nsteps 2
+
+# Test run with centered affect zone
+# Quick test runs
+# Batch: & "E:\Program Files\ParaView 5.11.0\bin\pvpython.exe" batch_slice_xz_csv_iter.py
+cd ~/workspace/src/PSM2025
+cd build_cmake
+ninja -j"$(nproc)" | tee build
+
+cd ~/workspace/src/PSM2025
+rm -rf run/zigzag0204_02
+mkdir -p run/zigzag0204_02
+cp bin/shell run/zigzag0204_02/
+cd run/zigzag0204_02
+
+cd ~/workspace/src/PSM2025
+mkdir -p run/zigzag0211_01
+cp bin/shell run/zigzag0211_01/
+cd run/zigzag0211_01
+
+# Test run for intermediate steps
+time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.152 -ly 0.025 \
+  -patch_lx 0.120 -patch_ly 0.010 -patch_x_from_left 0.120 -patch_yc 0.0 \
+  -res 0.01 \
+  -h_total 0.0006 \
+  -growth_type patch \
+  -growth_top  0.003 \
+  -growth_bot 0.000 \
+  -growth_angle 0.0 \
+  -ortho_coeff 0.0 \
+  -nsteps 1 \
+  -max_iter 18000
+ 
+ -dump_iters 0,500,1000,2000,3000,4000,5000,6000,8000,10000,12000,15000,18000,20000
+
+# Test run for zigzag growth
+time ./shell \
+  -out_dir runs/run_001 \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.127 -ly 0.1524 \
+  -res 0.01 \
+  -h_total 0.0006 \
+  -growth_type zigzag \
+  -zigzag_lv_mm 140 \
+  -zigzag_alpha_deg 9.13 \
+  -zigzag_N 10 \
+  -zigzag_w_mm 10 \
+  -zigzag_gtop_list 0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003 \
+  -zigzag_gbot_list 0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000 \
+  -zigzag_ortho_list 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0 \
+  -nsteps 1 \
+  -export_stl true \
+  -max_iter 60000
+
+# Test run for zigzag growth/case2
+time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.127 -ly 0.1524 \
+  -res 0.01 \
+  -h_total 0.0006 \
+  -growth_type zigzag \
+  -zigzag_lv_mm 140 \
+  -zigzag_alpha_deg 4.59 \
+  -zigzag_N 18 \
+  -zigzag_w_mm 10 \
+  -zigzag_gtop_list 0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003\
+  -zigzag_gbot_list 0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000 \
+  -zigzag_ortho_list 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0 \
+  -nsteps 1 
+ 
+  -max_iter 100000

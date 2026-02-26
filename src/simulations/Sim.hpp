@@ -185,6 +185,9 @@ protected:
                    const int max_iter = -1)
     {
         std::cout << "[Sim] minimizeEnergy extended args received. "
+          << "stepWise=" << stepWise
+          << " eps_init=" << eps
+          << " epsMin=" << epsMin
           << "dump_ptr=" << (dump_iters_ptr != nullptr)
           << " max_iter=" << max_iter << std::endl;
 

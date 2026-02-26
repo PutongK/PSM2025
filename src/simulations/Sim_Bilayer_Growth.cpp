@@ -621,6 +621,7 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     dumpOrtho(growthRates_1_b, growthRates_2_b, growthRates_1_t, growthRates_2_t, growthAngles, tag+"_init");
 
     // define the material and operator
+    // Check here later for different material properties for the top and bottom layers
     MaterialProperties_Iso_Constant matprop_bot(E, nu, h_total);
     MaterialProperties_Iso_Constant matprop_top(E, nu, h_total);
     CombinedOperator_Parametric<tMesh, Material_Isotropic, bottom> engOp_bot(matprop_bot);
@@ -655,12 +656,22 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
         // minimizeEnergy(engOps, eps);
 
         // ver-0122
-        Real eps = 1e-2;
-        minimizeEnergy(engOps, eps,
-                      std::numeric_limits<Real>::epsilon(),
-                      false,
-                      //(dump_iters.empty() ? nullptr : &dump_iters),
-                      &dump_iters,
+        // Real eps = 1e-2;
+        // minimizeEnergy(engOps, eps,
+        //               std::numeric_limits<Real>::epsilon(),
+        //               false,
+        //               //(dump_iters.empty() ? nullptr : &dump_iters),
+        //               &dump_iters,
+        //               max_iter);
+
+        Real eps_init = 1e-2;                           // keep
+        Real tol = parser.parse<Real>("-tol", 1e-6);    // new
+        bool stepwise = parser.parse<bool>("-stepwise", false);
+
+        minimizeEnergy(engOps, eps_init,
+                      tol,
+                      stepwise,
+                      (dump_iters.empty() ? nullptr : &dump_iters),
                       max_iter);
 
         // dump
@@ -1043,10 +1054,22 @@ void Sim_Bilayer_Growth::TestRandomPatterns()
           // Real eps = 1e-2;
           // minimizeEnergy(engOps_eqv, eps);
 
-          Real eps = 1e-2;
-          minimizeEnergy(engOps_eqv, eps,
-                        std::numeric_limits<Real>::epsilon(),
-                        false,
+          // New version for control over tolerances
+
+          // Real eps = 1e-2;
+          // minimizeEnergy(engOps_eqv, eps,
+          //               std::numeric_limits<Real>::epsilon(),
+          //               false,
+          //               (dump_iters.empty() ? nullptr : &dump_iters),
+          //               max_iter);
+
+          Real eps_init = 1e-2;                           // keep
+          Real tol = parser.parse<Real>("-tol", 1e-6);    // new
+          bool stepwise = parser.parse<bool>("-stepwise", false);
+
+          minimizeEnergy(engOps_eqv, eps_init,
+                        tol,
+                        stepwise,
                         (dump_iters.empty() ? nullptr : &dump_iters),
                         max_iter);
 

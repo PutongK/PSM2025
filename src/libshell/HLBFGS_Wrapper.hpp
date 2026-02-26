@@ -211,8 +211,8 @@ namespace HLBFGS_Methods
         void set_max_iter(int max_iter)
         {
         // ver-0122, for debugging
-        std::cout << "[HLBFGS] max_iter override set to " << max_iter_override << std::endl;
         max_iter_override = max_iter;
+        std::cout << "[HLBFGS] max_iter override set to " << max_iter_override << std::endl;
         }
         
         /**

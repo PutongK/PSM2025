@@ -38,14 +38,13 @@ ninja -j"$(nproc)" | tee build.log
 
 # To run PSM2025, use the following commands
 # Change directory to a new run folder
-# The original branch2,3,4 folders are deleted to save space
 cd ~/workspace/src/PSM2025
 rm -rf run/quicktest_branch2
 mkdir -p run/quicktest_branch5
 cp bin/shell run/quicktest_branch5/
 cd run/quicktest_branch5
 
-# run
+# run (original test case, quick test for growth)
 ./shell -sim monolayer_growth -case basic_disk -h 0.01 -innerR 0.05 -res 128 -s1 0.05 -s2 0.0
 
 # Test run
@@ -96,23 +95,59 @@ time ./shell \
 
 # Test run with centered affect zone
 # Quick test runs
-# Batch: & "E:\Program Files\ParaView 5.11.0\bin\pvpython.exe" batch_slice_xz_csv_iter.py
+
+# Minor modifications (No added denpendencies or files)
 cd ~/workspace/src/PSM2025
 cd build_cmake
 ninja -j"$(nproc)" | tee build
 
+# mkdir for run folders
 cd ~/workspace/src/PSM2025
-rm -rf run/zigzag0204_02
-mkdir -p run/zigzag0204_02
-cp bin/shell run/zigzag0204_02/
-cd run/zigzag0204_02
+rm -rf run/testtol/
+mkdir -p run/testtol/
+cp bin/shell run/testtol/
+cd run/testtol
 
 cd ~/workspace/src/PSM2025
-mkdir -p run/zigzag0211_01
-cp bin/shell run/zigzag0211_01/
-cd run/zigzag0211_01
+mkdir -p run/test_angle_E/
+cp bin/shell run/test_angle_E/
+cd run/test_angle_E
 
-# Test run for intermediate steps
+# mkdir for batch run folders
+cd ~/workspace/src/PSM2025
+mkdir -p run/BatchRun_offset/
+cp bin/shell run/BatchRun_offset/
+cd run/BatchRun_offset
+
+
+# Call pvpython for batch manipulations
+# Batch: & "E:\Program Files\ParaView 5.11.0\bin\pvpython.exe" batch_slice_xz_csv_iter.py
+
+# Batch run
+chmod +x run_batch_baseline.sh
+./run_batch_baseline.sh
+# For del rm -rf runs/run_* to save storage (ONCE SAVED ELSEWHERE)
+
+# Download STL files only for further analysis
+# make a staging area
+mkdir -p export_stl
+# copy only *.stl plus the top-level cmd.txt, preserving run_XXXX structure
+for d in runs_*; do
+  [ -d "$d" ] || continue
+  rsync -a --prune-empty-dirs \
+    --include='*/' \
+    --include='cmd.txt' \
+    --include='*.stl' \
+    --exclude='*' \
+    "$d"/  "export_stl/$d"/
+done
+
+# GIT cheat sheet
+git status
+git commit -m "MSG"
+git push
+
+# Test run for intermediate steps (NOT N-steps, but iter-based dumps)
 time ./shell \
   -sim bilayer_growth \
   -case custom \
@@ -150,9 +185,9 @@ time ./shell \
   -zigzag_ortho_list 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0 \
   -nsteps 1 \
   -export_stl true \
-  -max_iter 60000
+  -tol 1e-12
 
-# Test run for zigzag growth/case2
+# Test run for zigzag growth: case2
 time ./shell \
   -sim bilayer_growth \
   -case custom \
@@ -171,3 +206,122 @@ time ./shell \
   -nsteps 1 
  
   -max_iter 100000
+
+# Test run for zigzag growth, convergence test
+time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.127 -ly 0.1524 \
+  -res 0.01 \
+  -h_total 0.0006 \
+  -growth_type zigzag \
+  -zigzag_lv_mm 220 \
+  -zigzag_alpha_deg 5 \
+  -zigzag_N 6 \
+  -zigzag_w_mm 12 \
+  -zigzag_gtop_list 0.003,0.003,0.003,0.003,0.003,0.003 \
+  -zigzag_gbot_list 0.000,0.000,0.000,0.000,0.000,0.000 \
+  -zigzag_ortho_list 0.0,0.0,0.0,0.0,0.0,0.0 \
+  -nsteps 1 \
+  -export_stl true\
+  -max_iter 100000\
+  -tol 1e-13
+
+# Test run for zigzag growth with center-high, end-low profile
+time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.127 -ly 0.1524 \
+  -res 0.01 \
+  -h_total 0.0006 \
+  -growth_type zigzag \
+  -zigzag_lv_mm 140 \
+  -zigzag_alpha_deg 9.13 \
+  -zigzag_N 10 \
+  -zigzag_w_mm 10 \
+  -zigzag_gtop_list 0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003 \
+  -zigzag_gbot_list 0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000 \
+  -zigzag_ortho_list 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0 \
+  -zigzag_profile_mode center_peak \
+  -zigzag_top_end_ratio 0.4 \
+  -zigzag_top_profile_power 2.0 \
+  -nsteps 1 \
+  -export_stl true \
+  -tol 3e-12
+
+  time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.127 -ly 0.1524 \
+  -res 0.01 \
+  -h_total 0.0006 \
+  -growth_type zigzag \
+  -zigzag_lv_mm 140 \
+  -zigzag_alpha_deg 9.13 \
+  -zigzag_N 10 \
+  -zigzag_w_mm 10 \
+  -zigzag_gtop_list 0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003 \
+  -zigzag_gbot_list 0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000 \
+  -zigzag_ortho_list 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0 \
+  -zigzag_profile_mode uniform \
+  -zigzag_top_end_ratio 1.0 \
+  -zigzag_top_profile_power 1.0 \
+  -nsteps 1 \
+  -export_stl true \
+  -tol 3e-12
+
+  # Test overlap updating material properties
+  time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.127 -ly 0.1524 \
+  -res 0.01 \
+  -h_total 0.0006 \
+  -growth_type zigzag \
+  -zigzag_lv_mm 140 \
+  -zigzag_alpha_deg 9.13 \
+  -zigzag_N 10 \
+  -zigzag_w_mm 10 \
+  -zigzag_gtop_list 0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003 \
+  -zigzag_gbot_list 0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000 \
+  -zigzag_ortho_list 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0 \
+  -zigzag_profile_mode center_peak \
+  -zigzag_top_end_ratio 0.4 \
+  -zigzag_top_profile_power 2.0 \
+  -enable_passE true \
+  -passE_k 0.2 \
+  -passE_n0 2.0 \
+  -passE_p0 1 \
+  -nsteps 1 \
+  -export_stl true \
+  -tol 3e-12
+
+# Test compared to experimental results
+  time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.13 -ly 0.16 \
+  -res 0.01 \
+  -h_total 0.0005 \
+  -growth_type zigzag \
+  -zigzag_lv_mm 140 \
+  -zigzag_alpha_deg 9.13 \
+  -zigzag_N 10 \
+  -zigzag_w_mm 10 \
+  -zigzag_offset_dx_mm 0 \
+  -zigzag_offset_dy_mm 30 \
+  -zigzag_gtop_list 0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003 \
+  -zigzag_gbot_list 0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000 \
+  -zigzag_ortho_list 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0 \
+  -zigzag_profile_mode center_peak \
+  -zigzag_top_end_ratio 0.4 \
+  -zigzag_top_profile_power 2.0 \
+  -enable_passE false \
+  -nsteps 1 \
+  -export_stl true \
+  -tol 3e-12

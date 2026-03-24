@@ -1,3 +1,11 @@
+//
+//  WriteVTK.hpp
+//  ZigZagGrowth for English Wheel process simulation
+//
+//  Created by Putong Kang on 2/1/26.
+//  Copyright © 2026 Putong Kang. All rights reserved.
+//
+
 #pragma once
 #include <Eigen/Dense>
 #include <vector>
@@ -5,6 +13,7 @@
 #include <sstream>
 #include <cmath>
 #include <stdexcept>
+#include <algorithm>
 
 namespace zigzag {
 
@@ -15,11 +24,21 @@ enum class StartMode {
     LeftBottom_Up
 };
 
+// Add a switch
+enum class TopProfileMode {
+    Uniform,
+    CenterPeak
+};
+
 struct Params {
     double Lv_mm      = 140.0;   // vertical span in mm
     double alpha_deg  = 15.0;   // half-angle relative to vertical, deg
     int    N_total    = 6;      // total strips = (N_inclined + 2 vertical)
     double w_mm       = 8.0;    // strip width in mm
+
+    // offsets to shift the zigzag pattern center from the panel center, in mm
+    double offset_dx_mm = 0.0;   // shift of zigzag pattern center from panel center, in mm
+    double offset_dy_mm = 0.0;   // shift of zigzag pattern center from panel center, in mm
 
     bool last_wins    = true;
     StartMode start_mode = StartMode::LeftBottom_Up;
@@ -27,6 +46,12 @@ struct Params {
     // If true: set all growth to zero first, then write only where strips cover
     // This matches "growth only on toolpath".
     bool zero_outside = true;
+
+    // Along-strip modulation for growth_top only.
+    // Uniform reproduces the original behavior.
+    TopProfileMode top_profile_mode = TopProfileMode::Uniform;
+    double top_end_ratio = 1.0;      // 1.0 => uniform; <1 lowers the two ends
+    double top_profile_power = 1.0;  // 1 => sin(pi s), >1 sharper center peak
 };
 
 // ------------------------
@@ -78,6 +103,34 @@ inline double dist_point_segment_2d(const Eigen::Vector2d& p,
     const double t = std::max(0.0, std::min(1.0, (p - a).dot(ab) / ab2));
     const Eigen::Vector2d proj = a + t * ab;
     return (p - proj).norm();
+}
+
+// Parse profile mode
+inline TopProfileMode parseTopProfileMode(const std::string& s) {
+    if (s == "uniform") return TopProfileMode::Uniform;
+    if (s == "center_peak") return TopProfileMode::CenterPeak;
+    throw std::runtime_error("zigzag profile mode must be 'uniform' or 'center_peak'");
+}
+
+// Normalized coordinate along a segment
+inline double path_coord_01_on_segment_2d(const Eigen::Vector2d& p,
+                                          const Eigen::Vector2d& a,
+                                          const Eigen::Vector2d& b)
+{
+    const Eigen::Vector2d ab = b - a;
+    const double ab2 = ab.squaredNorm();
+    if (ab2 <= 1e-30) return 0.5;
+    const double s = (p - a).dot(ab) / ab2;
+    return std::max(0.0, std::min(1.0, s));
+}
+
+// Center-high profile with nonzero ends
+inline double center_peak_profile_01(double s, double end_ratio, double power)
+{
+    const double endr = std::max(0.0, std::min(1.0, end_ratio));
+    const double p = std::max(1e-12, power);
+    const double hump = std::pow(std::sin(M_PI * s), p);
+    return endr + (1.0 - endr) * hump;
 }
 
 // A single strip = a segment centerline + width + parameters
@@ -176,6 +229,54 @@ inline std::vector<StripSegment> buildZigZagStrips(const Params& zz,
     return strips;
 }
 
+// New function to check if the shifted footprint of the zigzag pattern is still inside the panel.
+inline void checkShiftedFootprintInsidePanel(const std::vector<StripSegment>& strips,
+                                             double half_w,
+                                             double panel_lx,
+                                             double panel_ly,
+                                             double dx,
+                                             double dy)
+{
+    if (strips.empty()) return;
+
+    double xmin =  1e300, xmax = -1e300;
+    double ymin =  1e300, ymax = -1e300;
+
+    for (const auto& s : strips) {
+        xmin = std::min(xmin, std::min(s.a.x(), s.b.x()));
+        xmax = std::max(xmax, std::max(s.a.x(), s.b.x()));
+        ymin = std::min(ymin, std::min(s.a.y(), s.b.y()));
+        ymax = std::max(ymax, std::max(s.a.y(), s.b.y()));
+    }
+
+    // expand by strip half-width to get painted footprint
+    xmin -= half_w; xmax += half_w;
+    ymin -= half_w; ymax += half_w;
+
+    // apply requested shift
+    xmin += dx; xmax += dx;
+    ymin += dy; ymax += dy;
+
+    const double pxmin = -0.5 * panel_lx;
+    const double pxmax =  0.5 * panel_lx;
+    const double pymin = -0.5 * panel_ly;
+    const double pymax =  0.5 * panel_ly;
+
+    if (xmin < pxmin || xmax > pxmax || ymin < pymin || ymax > pymax) {
+        const double dx_min = pxmin - (xmin - dx);
+        const double dx_max = pxmax - (xmax - dx);
+        const double dy_min = pymin - (ymin - dy);
+        const double dy_max = pymax - (ymax - dy);
+
+        std::ostringstream oss;
+        oss << "zigzag offset moves footprint outside panel.\n"
+            << "Requested: dx=" << dx << " m, dy=" << dy << " m\n"
+            << "Allowed dx range: [" << dx_min << ", " << dx_max << "] m\n"
+            << "Allowed dy range: [" << dy_min << ", " << dy_max << "] m";
+        throw std::runtime_error(oss.str());
+    }
+}
+
 // ------------------------
 // Main application function
 // ------------------------
@@ -188,7 +289,8 @@ inline void apply(const MeshType& mesh,
                   Eigen::VectorXd& growthRates_t,
                   Eigen::VectorXd& growthRates_b,
                   Eigen::VectorXd& growthAngles,
-                  Eigen::VectorXd& orthoCoeffFaces)
+                  Eigen::VectorXd& orthoCoeffFaces,
+                  Eigen::VectorXi* passCountFaces = nullptr) // passCountFaces: optional output of how many strips cover each face (for debugging)
 {
     const int nFaces = mesh.getNumberOfFaces();
     if (growthRates_t.size() != nFaces || growthRates_b.size() != nFaces)
@@ -197,10 +299,18 @@ inline void apply(const MeshType& mesh,
         throw std::runtime_error("zigzag::apply: growthAngles/orthoCoeffFaces size mismatch");
     if ((int)gtop_list.size() != zz.N_total || (int)gbot_list.size() != zz.N_total || (int)ortho_list.size() != zz.N_total)
         throw std::runtime_error("zigzag::apply: parameter lists must have size N_total");
+    if (passCountFaces) {
+        if (passCountFaces->size() != nFaces)
+            throw std::runtime_error("zigzag::apply: passCountFaces size mismatch");
+    }
 
     // Build strips (centered)
     const auto strips = buildZigZagStrips(zz, gtop_list, gbot_list, ortho_list);
     const double half_w = 0.5 * (zz.w_mm * 1e-3);
+
+    // Apply offset for strips
+    const double dx = zz.offset_dx_mm * 1e-3;
+    const double dy = zz.offset_dy_mm * 1e-3;
 
     // Optionally zero everything first
     if (zz.zero_outside) {
@@ -222,6 +332,12 @@ inline void apply(const MeshType& mesh,
     const double ymax = V.col(1).maxCoeff();
     const Eigen::Vector2d center(0.5*(xmin + xmax), 0.5*(ymin + ymax));
 
+    // Check if the shifted footprint of the zigzag pattern is still inside the panel.
+    const double panel_lx = xmax - xmin;
+    const double panel_ly = ymax - ymin;
+
+    checkShiftedFootprintInsidePanel(strips, half_w, panel_lx, panel_ly, dx, dy);
+
     // For each strip in order: last wins = overwrite as we go
     for (int k = 0; k < (int)strips.size(); ++k) {
         const auto& s = strips[k];
@@ -236,11 +352,33 @@ inline void apply(const MeshType& mesh,
                 (V(i0,1) + V(i1,1) + V(i2,1)) / 3.0
             );
 
-            const Eigen::Vector2d cc = c - center; // center XY, shift to zigzag frame
+            // const Eigen::Vector2d cc = c - center; // center XY, shift to zigzag frame
 
-            const double d = dist_point_segment_2d(c, s.a, s.b);
+            // const double d = dist_point_segment_2d(cc, s.a, s.b);
+
+            const Eigen::Vector2d cc = c - center;                 // centered panel frame
+            const Eigen::Vector2d p  = cc - Eigen::Vector2d(dx,dy); // shift into zigzag pattern frame
+
+            const double d = dist_point_segment_2d(p, s.a, s.b);
+
+            // if (d <= half_w) {
+            //     growthRates_t(i) = s.gtop;
+            //     growthRates_b(i) = s.gbot;
+            //     growthAngles(i)  = s.angle_rad;
+            //     orthoCoeffFaces(i) = s.ortho;
+            // }
             if (d <= half_w) {
-                growthRates_t(i) = s.gtop;
+                if (passCountFaces) (*passCountFaces)(i) += 1;  // history accumulation
+                double gtop_local = s.gtop;
+
+                if (zz.top_profile_mode == TopProfileMode::CenterPeak) {
+                    // const double s01 = path_coord_01_on_segment_2d(cc, s.a, s.b);
+                    const double s01 = path_coord_01_on_segment_2d(p, s.a, s.b);
+                    const double profile = center_peak_profile_01(s01, zz.top_end_ratio, zz.top_profile_power);
+                    gtop_local *= profile;
+                }
+
+                growthRates_t(i) = gtop_local;
                 growthRates_b(i) = s.gbot;
                 growthAngles(i)  = s.angle_rad;
                 orthoCoeffFaces(i) = s.ortho;

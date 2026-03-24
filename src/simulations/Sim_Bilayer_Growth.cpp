@@ -23,6 +23,7 @@
 
 // ver-0203
 #include "ZigZagGrowth.hpp"
+#include <memory>
 
 static std::vector<int> parse_int_list(const std::string& s)
 {
@@ -82,6 +83,13 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     initForwardProblem();
 
     const Real E = 1;
+    // const Real E = 73100; // E,ν for Aluminum Alloy 2024-T3
+    // Update E to match the material properties of the bilayer being simulated
+    const bool enable_passE = parser.parse<bool>("-enable_passE", false);
+    const Real passE_k = parser.parse<Real>("-passE_k", 0.05);      // max +5%
+    const Real passE_n0 = parser.parse<Real>("-passE_n0", 2.0);     // saturation rate
+    const int  passE_p0 = parser.parse<int> ("-passE_p0", 1);       // baseline pass count
+
     const Real nu = 0.33;
     const Real h_total = parser.parse<Real>("-h_total", 0.003);
 
@@ -97,12 +105,30 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     const int nVert = mesh.getNumberOfVertices();
     const auto Connect = mesh.getTopology().getFace2Vertices();
     const int nFaces = mesh.getNumberOfFaces();
+
+    Eigen::VectorXi passCountFaces(nFaces);
+    passCountFaces.setZero();
+
     Eigen::VectorXi IndicV(nVert);
     IndicV.setZero();
+
     Eigen::VectorXd growthRates_b(nFaces);
     Eigen::VectorXd growthRates_t(nFaces);
     growthRates_b.setZero();
     growthRates_t.setZero();
+
+    Eigen::VectorXd E_face = Eigen::VectorXd::Constant(nFaces, E);
+
+    if (enable_passE) {
+        for (int i=0; i<nFaces; ++i) {
+            const int p = passCountFaces(i);
+            if (p > passE_p0) {
+                const Real x = (Real)(p - passE_p0) / passE_n0;
+                const Real mult = 1.0 + passE_k * (1.0 - std::exp(-x));  // increases & saturates
+                E_face(i) = E * mult;
+            }
+        }
+    }
 
     // Debug: Give declaration
     // --- helpers for quick sanity prints
@@ -424,10 +450,21 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
         const int  N_total   = parser.parse<int> ("-zigzag_N", 6);
         const Real w_mm      = parser.parse<Real>("-zigzag_w_mm", 2.0);
 
+        const Real offset_dx_mm = parser.parse<Real>("-zigzag_offset_dx_mm", 0.0);
+        const Real offset_dy_mm = parser.parse<Real>("-zigzag_offset_dy_mm", 0.0);
+
         // per-strip grouped parameters (length = N_total)
         const std::string gtop_s  = parser.parse<std::string>("-zigzag_gtop_list", "");
         const std::string gbot_s  = parser.parse<std::string>("-zigzag_gbot_list", "");
         const std::string ortho_s = parser.parse<std::string>("-zigzag_ortho_list", "");
+
+        // Theta related modifications
+        const std::string zigzag_profile_mode_str =
+            parser.parse<std::string>("-zigzag_profile_mode", "uniform");
+        const double zigzag_top_end_ratio =
+            parser.parse<Real>("-zigzag_top_end_ratio", 1.0);
+        const double zigzag_top_profile_power =
+            parser.parse<Real>("-zigzag_top_profile_power", 1.0);
 
         // defaults fall back to global values if lists not provided
         const Real gtop_default  = growthRate_t;
@@ -450,15 +487,31 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
         zz.last_wins  = true;
         zz.start_mode = zigzag::StartMode::LeftBottom_Up; // your preference
 
+        zz.offset_dx_mm = parser.parse<Real>("-zigzag_offset_dx_mm", 0.0);
+        zz.offset_dy_mm = parser.parse<Real>("-zigzag_offset_dy_mm", 0.0);
+
+        //
+        zz.top_profile_mode = zigzag::parseTopProfileMode(zigzag_profile_mode_str);
+        zz.top_end_ratio = zigzag_top_end_ratio;
+        zz.top_profile_power = zigzag_top_profile_power;
+
         // debug: print parsed parameters
         std::cout << "[zigzag] gtop_list size=" << gtop_list.size()
           << " gbot_list size=" << gbot_list.size()
           << " ortho_list size=" << ortho_list.size()
           << "\n";
 
+        Eigen::VectorXi passCountFaces(nFaces);
+        passCountFaces.setZero();
+
         zigzag::apply(mesh, zz, gtop_list, gbot_list, ortho_list,
                       growthRates_t, growthRates_b,
-                      growthAngles, orthoCoeffFaces);
+                      growthAngles, orthoCoeffFaces,
+                      &passCountFaces);
+
+        // zigzag::apply(mesh, zz, gtop_list, gbot_list, ortho_list,
+        //               growthRates_t, growthRates_b,
+        //               growthAngles, orthoCoeffFaces);
 
         // Debug, print nonzero counts + min/max
         std::cout << "[zigzag] list sizes: gtop=" << gtop_list.size()
@@ -589,6 +642,13 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
           << " top[min,max]=[" << vmin(growthRates_t) << "," << vmax(growthRates_t) << "]"
           << " bot[min,max]=[" << vmin(growthRates_b) << "," << vmax(growthRates_b) << "]\n";
 
+    const double eps0 = 1e-20;
+    for (int i=0; i<nFaces; ++i) {
+        if (std::abs(growthRates_t(i)) + std::abs(growthRates_b(i)) <= eps0) {
+            passCountFaces(i) = 0;
+        }
+    }
+
     // const Eigen::VectorXd growthAngles = Eigen::VectorXd::Constant(nFaces, growthAngle);
 
     Eigen::VectorXd growthRates_1_t(nFaces);
@@ -622,11 +682,26 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
 
     // define the material and operator
     // Check here later for different material properties for the top and bottom layers
-    MaterialProperties_Iso_Constant matprop_bot(E, nu, h_total);
-    MaterialProperties_Iso_Constant matprop_top(E, nu, h_total);
-    CombinedOperator_Parametric<tMesh, Material_Isotropic, bottom> engOp_bot(matprop_bot);
-    CombinedOperator_Parametric<tMesh, Material_Isotropic, top> engOp_top(matprop_top);
+    // MaterialProperties_Iso_Constant matprop_bot(E, nu, h_total);
+    // MaterialProperties_Iso_Constant matprop_top(E, nu, h_total);
+    std::unique_ptr<MaterialProperties<Material_Isotropic>> matprop_bot_ptr;
+    std::unique_ptr<MaterialProperties<Material_Isotropic>> matprop_top_ptr;
+
+    if (enable_passE) {
+        matprop_bot_ptr = std::make_unique<MaterialProperties_Iso_Array>(E_face, nu, h_total);
+        matprop_top_ptr = std::make_unique<MaterialProperties_Iso_Array>(E_face, nu, h_total);
+    } else {
+        matprop_bot_ptr = std::make_unique<MaterialProperties_Iso_Constant>(E, nu, h_total);
+        matprop_top_ptr = std::make_unique<MaterialProperties_Iso_Constant>(E, nu, h_total);
+    }
+
+    CombinedOperator_Parametric<tMesh, Material_Isotropic, bottom> engOp_bot(*matprop_bot_ptr);
+    CombinedOperator_Parametric<tMesh, Material_Isotropic, top>    engOp_top(*matprop_top_ptr);
     EnergyOperatorList<tMesh> engOps({&engOp_bot, &engOp_top});
+
+    // CombinedOperator_Parametric<tMesh, Material_Isotropic, bottom> engOp_bot(matprop_bot);
+    // CombinedOperator_Parametric<tMesh, Material_Isotropic, top> engOp_top(matprop_top);
+    // EnergyOperatorList<tMesh> engOps({&engOp_bot, &engOp_top});
 
     // dump 0 swelling rate (initial condition) for nicer movies afterwards
     dumpOrtho(growthRates_1_b, growthRates_2_b, growthRates_1_t, growthRates_2_t, growthAngles, tag+"_final_"+helpers::ToString(0,2));
@@ -1026,6 +1101,21 @@ void Sim_Bilayer_Growth::TestRandomPatterns()
       CombinedOperator_Parametric<tMesh, Material_Isotropic, bottom> engOp_bot_eqv(matprop_bot_eqv);
       CombinedOperator_Parametric<tMesh, Material_Isotropic, top> engOp_top_eqv(matprop_top_eqv);
       EnergyOperatorList<tMesh> engOps_eqv({&engOp_bot_eqv, &engOp_top_eqv});
+
+      // std::unique_ptr<MaterialProperties<Material_Isotropic>> matprop_bot_ptr;
+      // std::unique_ptr<MaterialProperties<Material_Isotropic>> matprop_top_ptr;
+
+      // if (enable_passE) {
+      //     matprop_bot_ptr = std::make_unique<MaterialProperties_Iso_Array>(E_face, nu, h_total);
+      //     matprop_top_ptr = std::make_unique<MaterialProperties_Iso_Array>(E_face, nu, h_total);
+      // } else {
+      //     matprop_bot_ptr = std::make_unique<MaterialProperties_Iso_Constant>(E, nu, h_total);
+      //     matprop_top_ptr = std::make_unique<MaterialProperties_Iso_Constant>(E, nu, h_total);
+      // }
+
+      // CombinedOperator_Parametric<tMesh, Material_Isotropic, bottom> engOp_bot(*matprop_bot_ptr);
+      // CombinedOperator_Parametric<tMesh, Material_Isotropic, top>    engOp_top(*matprop_top_ptr);
+      // EnergyOperatorList<tMesh> engOps({&engOp_bot, &engOp_top});
 
       // write initial condition
       mesh.writeToFile(tag+"_init");

@@ -25,6 +25,9 @@
 #include "ZigZagGrowth.hpp"
 #include <memory>
 
+// ver-0321
+#include "RectSpiralGrowth.hpp"
+
 static std::vector<int> parse_int_list(const std::string& s)
 {
     std::vector<int> out;
@@ -74,6 +77,7 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     // - circle (circular zone in the center of the plate)
     // - external (projection of a pattern coming from another mesh)
     // - zigzag (zigzag pattern) New function added ver-0203
+    // - rect_spiral 
    
     const std::string geometryCase = parser.parse<std::string>("-geometry", ""); //see initForwardProblem()
     const Real margin_x = parser.parse<Real>("-margin_x", 0.0); // margins to simulate the clamping frame: no eigensrain in this zone. 0.001 = 1mm
@@ -439,92 +443,136 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
       }
     }
 
-      // ver-0203 ADDED zigzag pattern
-      else if (growth_type == "zigzag")
-      {
-        std::cout << "[zigzag] ENTER (TestCustomGrowth) line=" << __LINE__ << "\n"; // For debug
+    // ver-0203 ADDED zigzag pattern
+    else if (growth_type == "zigzag")
+    {
+      std::cout << "[zigzag] ENTER (TestCustomGrowth) line=" << __LINE__ << "\n"; // For debug
 
-        // ---- CLI (mm units) ----
-        const Real Lv_mm     = parser.parse<Real>("-zigzag_lv_mm", 40.0);
-        const Real alpha_deg = parser.parse<Real>("-zigzag_alpha_deg", 15.0); // relative to vertical
-        const int  N_total   = parser.parse<int> ("-zigzag_N", 6);
-        const Real w_mm      = parser.parse<Real>("-zigzag_w_mm", 2.0);
+      // ---- CLI (mm units) ----
+      const Real Lv_mm     = parser.parse<Real>("-zigzag_lv_mm", 40.0);
+      const Real alpha_deg = parser.parse<Real>("-zigzag_alpha_deg", 15.0); // relative to vertical
+      const int  N_total   = parser.parse<int> ("-zigzag_N", 6);
+      const Real w_mm      = parser.parse<Real>("-zigzag_w_mm", 2.0);
 
-        const Real offset_dx_mm = parser.parse<Real>("-zigzag_offset_dx_mm", 0.0);
-        const Real offset_dy_mm = parser.parse<Real>("-zigzag_offset_dy_mm", 0.0);
+      const Real offset_dx_mm = parser.parse<Real>("-zigzag_offset_dx_mm", 0.0);
+      const Real offset_dy_mm = parser.parse<Real>("-zigzag_offset_dy_mm", 0.0);
 
-        // per-strip grouped parameters (length = N_total)
-        const std::string gtop_s  = parser.parse<std::string>("-zigzag_gtop_list", "");
-        const std::string gbot_s  = parser.parse<std::string>("-zigzag_gbot_list", "");
-        const std::string ortho_s = parser.parse<std::string>("-zigzag_ortho_list", "");
+      // per-strip grouped parameters (length = N_total)
+      const std::string gtop_s  = parser.parse<std::string>("-zigzag_gtop_list", "");
+      const std::string gbot_s  = parser.parse<std::string>("-zigzag_gbot_list", "");
+      const std::string ortho_s = parser.parse<std::string>("-zigzag_ortho_list", "");
 
-        // Theta related modifications
-        const std::string zigzag_profile_mode_str =
-            parser.parse<std::string>("-zigzag_profile_mode", "uniform");
-        const double zigzag_top_end_ratio =
-            parser.parse<Real>("-zigzag_top_end_ratio", 1.0);
-        const double zigzag_top_profile_power =
-            parser.parse<Real>("-zigzag_top_profile_power", 1.0);
+      // Theta related modifications
+      const std::string zigzag_profile_mode_str =
+          parser.parse<std::string>("-zigzag_profile_mode", "uniform");
+      const double zigzag_top_end_ratio =
+          parser.parse<Real>("-zigzag_top_end_ratio", 1.0);
+      const double zigzag_top_profile_power =
+          parser.parse<Real>("-zigzag_top_profile_power", 1.0);
 
-        // defaults fall back to global values if lists not provided
-        const Real gtop_default  = growthRate_t;
-        const Real gbot_default  = growthRate_b;
-        const Real ortho_default = ortho_coeff;
+      // defaults fall back to global values if lists not provided
+      const Real gtop_default  = growthRate_t;
+      const Real gbot_default  = growthRate_b;
+      const Real ortho_default = ortho_coeff;
 
-        std::vector<double> gtop_list(N_total, gtop_default);
-        std::vector<double> gbot_list(N_total, gbot_default);
-        std::vector<double> ortho_list(N_total, ortho_default);
+      std::vector<double> gtop_list(N_total, gtop_default);
+      std::vector<double> gbot_list(N_total, gbot_default);
+      std::vector<double> ortho_list(N_total, ortho_default);
 
-        if(!gtop_s.empty())  gtop_list  = zigzag::parseCommaListReal(gtop_s,  N_total, gtop_default);
-        if(!gbot_s.empty())  gbot_list  = zigzag::parseCommaListReal(gbot_s,  N_total, gbot_default);
-        if(!ortho_s.empty()) ortho_list = zigzag::parseCommaListReal(ortho_s, N_total, ortho_default);
+      if(!gtop_s.empty())  gtop_list  = zigzag::parseCommaListReal(gtop_s,  N_total, gtop_default);
+      if(!gbot_s.empty())  gbot_list  = zigzag::parseCommaListReal(gbot_s,  N_total, gbot_default);
+      if(!ortho_s.empty()) ortho_list = zigzag::parseCommaListReal(ortho_s, N_total, ortho_default);
 
-        zigzag::Params zz;
-        zz.Lv_mm      = Lv_mm;
-        zz.alpha_deg  = alpha_deg;
-        zz.N_total    = N_total;
-        zz.w_mm       = w_mm;
-        zz.last_wins  = true;
-        zz.start_mode = zigzag::StartMode::LeftBottom_Up; // your preference
+      zigzag::Params zz;
+      zz.Lv_mm      = Lv_mm;
+      zz.alpha_deg  = alpha_deg;
+      zz.N_total    = N_total;
+      zz.w_mm       = w_mm;
+      zz.last_wins  = true;
+      zz.start_mode = zigzag::StartMode::LeftBottom_Up; // your preference
 
-        zz.offset_dx_mm = parser.parse<Real>("-zigzag_offset_dx_mm", 0.0);
-        zz.offset_dy_mm = parser.parse<Real>("-zigzag_offset_dy_mm", 0.0);
+      zz.offset_dx_mm = parser.parse<Real>("-zigzag_offset_dx_mm", 0.0);
+      zz.offset_dy_mm = parser.parse<Real>("-zigzag_offset_dy_mm", 0.0);
 
-        //
-        zz.top_profile_mode = zigzag::parseTopProfileMode(zigzag_profile_mode_str);
-        zz.top_end_ratio = zigzag_top_end_ratio;
-        zz.top_profile_power = zigzag_top_profile_power;
+      //
+      zz.top_profile_mode = zigzag::parseTopProfileMode(zigzag_profile_mode_str);
+      zz.top_end_ratio = zigzag_top_end_ratio;
+      zz.top_profile_power = zigzag_top_profile_power;
 
-        // debug: print parsed parameters
-        std::cout << "[zigzag] gtop_list size=" << gtop_list.size()
-          << " gbot_list size=" << gbot_list.size()
-          << " ortho_list size=" << ortho_list.size()
-          << "\n";
+      // debug: print parsed parameters
+      std::cout << "[zigzag] gtop_list size=" << gtop_list.size()
+        << " gbot_list size=" << gbot_list.size()
+        << " ortho_list size=" << ortho_list.size()
+        << "\n";
 
-        Eigen::VectorXi passCountFaces(nFaces);
-        passCountFaces.setZero();
+      Eigen::VectorXi passCountFaces(nFaces);
+      passCountFaces.setZero();
 
-        zigzag::apply(mesh, zz, gtop_list, gbot_list, ortho_list,
-                      growthRates_t, growthRates_b,
-                      growthAngles, orthoCoeffFaces,
-                      &passCountFaces);
+      zigzag::apply(mesh, zz, gtop_list, gbot_list, ortho_list,
+                    growthRates_t, growthRates_b,
+                    growthAngles, orthoCoeffFaces,
+                    &passCountFaces);
 
-        // zigzag::apply(mesh, zz, gtop_list, gbot_list, ortho_list,
-        //               growthRates_t, growthRates_b,
-        //               growthAngles, orthoCoeffFaces);
+      // zigzag::apply(mesh, zz, gtop_list, gbot_list, ortho_list,
+      //               growthRates_t, growthRates_b,
+      //               growthAngles, orthoCoeffFaces);
 
-        // Debug, print nonzero counts + min/max
-        std::cout << "[zigzag] list sizes: gtop=" << gtop_list.size()
-          << " gbot=" << gbot_list.size()
-          << " ortho=" << ortho_list.size()
-          << "\n";
+      // Debug, print nonzero counts + min/max
+      std::cout << "[zigzag] list sizes: gtop=" << gtop_list.size()
+        << " gbot=" << gbot_list.size()
+        << " ortho=" << ortho_list.size()
+        << "\n";
 
-        std::cout << "[zigzag] after apply: "
-                  << "nnz_top=" << nnz(growthRates_t)
-                  << " nnz_bot=" << nnz(growthRates_b)
-                  << " top[min,max]=[" << vmin(growthRates_t) << "," << vmax(growthRates_t) << "]"
-                  << " bot[min,max]=[" << vmin(growthRates_b) << "," << vmax(growthRates_b) << "]\n";
-      }
+      std::cout << "[zigzag] after apply: "
+                << "nnz_top=" << nnz(growthRates_t)
+                << " nnz_bot=" << nnz(growthRates_b)
+                << " top[min,max]=[" << vmin(growthRates_t) << "," << vmax(growthRates_t) << "]"
+                << " bot[min,max]=[" << vmin(growthRates_b) << "," << vmax(growthRates_b) << "]\n";
+    }
+
+    else if (growth_type == "rect_spiral")
+    {
+      std::cout << "[rect_spiral] ENTER (TestCustomGrowth) line=" << __LINE__ << "\n";
+
+      // ---- CLI (mm units) ----
+      const Real Lx0_mm = parser.parse<Real>("-spiral_Lx0_mm", 40.0);
+      const Real Ly0_mm = parser.parse<Real>("-spiral_Ly0_mm", 40.0);
+      const Real gap_mm = parser.parse<Real>("-spiral_gap_mm", 8.0);
+      const Real w_mm   = parser.parse<Real>("-spiral_w_mm", 8.0);
+      const Real min_leg_mm = parser.parse<Real>("-spiral_min_leg_mm", -1.0);
+
+      const Real offset_dx_mm = parser.parse<Real>("-spiral_offset_dx_mm", 0.0);
+      const Real offset_dy_mm = parser.parse<Real>("-spiral_offset_dy_mm", 0.0);
+
+      const Real spiral_gtop  = parser.parse<Real>("-spiral_gtop", growthRate_t);
+      const Real spiral_gbot  = parser.parse<Real>("-spiral_gbot", growthRate_b);
+      const Real spiral_ortho = parser.parse<Real>("-spiral_ortho", ortho_coeff);
+
+      rect_spiral::Params rs;
+      rs.Lx0_mm = Lx0_mm;
+      rs.Ly0_mm = Ly0_mm;
+      rs.gap_mm = gap_mm;
+      rs.w_mm   = w_mm;
+      rs.last_wins = true;
+      rs.start_mode = rect_spiral::StartMode::LeftBottom_Up;
+      rs.zero_outside = true;
+      rs.offset_dx_mm = offset_dx_mm;
+      rs.offset_dy_mm = offset_dy_mm;
+      rs.min_leg_mm = min_leg_mm;
+      Eigen::VectorXi passCountFaces(nFaces);
+      passCountFaces.setZero();
+
+      rect_spiral::apply(mesh, rs, spiral_gtop, spiral_gbot, spiral_ortho,
+                        growthRates_t, growthRates_b,
+                        growthAngles, orthoCoeffFaces,
+                        &passCountFaces);
+
+      std::cout << "[rect_spiral] after apply: "
+                << "nnz_top=" << nnz(growthRates_t)
+                << " nnz_bot=" << nnz(growthRates_b)
+                << " top[min,max]=[" << vmin(growthRates_t) << "," << vmax(growthRates_t) << "]"
+                << " bot[min,max]=[" << vmin(growthRates_b) << "," << vmax(growthRates_b) << "]\n";
+    }
 
       else {
         const std::string growth_tag = parser.template parse<std::string>("-growth_tag", "");
@@ -1181,10 +1229,6 @@ void Sim_Bilayer_Growth::TestRandomPatterns()
     helpers::write_matrix_binary(tag+"_h_nu.dat", h_nu);
 
 }
-
-
-
-
 
 void Sim_Bilayer_Growth::initForwardProblem()
 {

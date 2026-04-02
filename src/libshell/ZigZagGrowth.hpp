@@ -1,5 +1,5 @@
 //
-//  WriteVTK.hpp
+//  ZigZagGrowth.hpp
 //  ZigZagGrowth for English Wheel process simulation
 //
 //  Created by Putong Kang on 2/1/26.

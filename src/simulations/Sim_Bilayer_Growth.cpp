@@ -457,6 +457,8 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
       const Real offset_dx_mm = parser.parse<Real>("-zigzag_offset_dx_mm", 0.0);
       const Real offset_dy_mm = parser.parse<Real>("-zigzag_offset_dy_mm", 0.0);
 
+      const Real rotation_deg = parser.parse<Real>("-zigzag_rotation_deg", 0.0);
+
       // per-strip grouped parameters (length = N_total)
       const std::string gtop_s  = parser.parse<std::string>("-zigzag_gtop_list", "");
       const std::string gbot_s  = parser.parse<std::string>("-zigzag_gbot_list", "");
@@ -491,8 +493,10 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
       zz.last_wins  = true;
       zz.start_mode = zigzag::StartMode::LeftBottom_Up; // your preference
 
-      zz.offset_dx_mm = parser.parse<Real>("-zigzag_offset_dx_mm", 0.0);
-      zz.offset_dy_mm = parser.parse<Real>("-zigzag_offset_dy_mm", 0.0);
+      zz.offset_dx_mm = offset_dx_mm;
+      zz.offset_dy_mm = offset_dy_mm;
+
+      zz.rotation_deg = rotation_deg;
 
       //
       zz.top_profile_mode = zigzag::parseTopProfileMode(zigzag_profile_mode_str);

@@ -40,6 +40,8 @@ struct Params {
     double offset_dx_mm = 0.0;   // shift of zigzag pattern center from panel center, in mm
     double offset_dy_mm = 0.0;   // shift of zigzag pattern center from panel center, in mm
 
+    double rotation_deg = 0.0;   // rigid rotation of whole zigzag pattern, CCW, about local origin
+
     bool last_wins    = true;
     StartMode start_mode = StartMode::LeftBottom_Up;
 
@@ -58,6 +60,17 @@ struct Params {
 // Small utilities
 // ------------------------
 inline double deg2rad(double deg) { return deg * M_PI / 180.0; }
+
+// 2D rotation matrix for angle in radians
+inline Eigen::Matrix2d rot2d(double ang_rad)
+{
+    const double c = std::cos(ang_rad);
+    const double s = std::sin(ang_rad);
+    Eigen::Matrix2d R;
+    R << c, -s,
+         s,  c;
+    return R;
+}
 
 // Normalize orientation so opposite directions are equivalent (0..pi)
 inline double normalize_angle_pi(double a) {
@@ -229,13 +242,62 @@ inline std::vector<StripSegment> buildZigZagStrips(const Params& zz,
     return strips;
 }
 
-// New function to check if the shifted footprint of the zigzag pattern is still inside the panel.
-inline void checkShiftedFootprintInsidePanel(const std::vector<StripSegment>& strips,
-                                             double half_w,
-                                             double panel_lx,
-                                             double panel_ly,
-                                             double dx,
-                                             double dy)
+// // New function to check if the shifted footprint of the zigzag pattern is still inside the panel.
+// inline void checkShiftedFootprintInsidePanel(const std::vector<StripSegment>& strips,
+//                                              double half_w,
+//                                              double panel_lx,
+//                                              double panel_ly,
+//                                              double dx,
+//                                              double dy)
+// {
+//     if (strips.empty()) return;
+
+//     double xmin =  1e300, xmax = -1e300;
+//     double ymin =  1e300, ymax = -1e300;
+
+//     for (const auto& s : strips) {
+//         xmin = std::min(xmin, std::min(s.a.x(), s.b.x()));
+//         xmax = std::max(xmax, std::max(s.a.x(), s.b.x()));
+//         ymin = std::min(ymin, std::min(s.a.y(), s.b.y()));
+//         ymax = std::max(ymax, std::max(s.a.y(), s.b.y()));
+//     }
+
+//     // expand by strip half-width to get painted footprint
+//     xmin -= half_w; xmax += half_w;
+//     ymin -= half_w; ymax += half_w;
+
+//     // apply requested shift
+//     xmin += dx; xmax += dx;
+//     ymin += dy; ymax += dy;
+
+//     const double pxmin = -0.5 * panel_lx;
+//     const double pxmax =  0.5 * panel_lx;
+//     const double pymin = -0.5 * panel_ly;
+//     const double pymax =  0.5 * panel_ly;
+
+//     if (xmin < pxmin || xmax > pxmax || ymin < pymin || ymax > pymax) {
+//         const double dx_min = pxmin - (xmin - dx);
+//         const double dx_max = pxmax - (xmax - dx);
+//         const double dy_min = pymin - (ymin - dy);
+//         const double dy_max = pymax - (ymax - dy);
+
+//         std::ostringstream oss;
+//         oss << "zigzag offset moves footprint outside panel.\n"
+//             << "Requested: dx=" << dx << " m, dy=" << dy << " m\n"
+//             << "Allowed dx range: [" << dx_min << ", " << dx_max << "] m\n"
+//             << "Allowed dy range: [" << dy_min << ", " << dy_max << "] m";
+//         throw std::runtime_error(oss.str());
+//     }
+// }
+
+// New function to check if the transformed footprint of the zigzag pattern is still inside the panel.
+inline void checkTransformedFootprintInsidePanel(const std::vector<StripSegment>& strips,
+                                                 double half_w,
+                                                 double panel_lx,
+                                                 double panel_ly,
+                                                 double dx,
+                                                 double dy,
+                                                 double rot_rad)
 {
     if (strips.empty()) return;
 
@@ -253,26 +315,44 @@ inline void checkShiftedFootprintInsidePanel(const std::vector<StripSegment>& st
     xmin -= half_w; xmax += half_w;
     ymin -= half_w; ymax += half_w;
 
-    // apply requested shift
-    xmin += dx; xmax += dx;
-    ymin += dy; ymax += dy;
+    // rectangle corners in local zigzag frame
+    std::vector<Eigen::Vector2d> corners = {
+        {xmin, ymin},
+        {xmin, ymax},
+        {xmax, ymin},
+        {xmax, ymax}
+    };
+
+    const Eigen::Matrix2d R = rot2d(rot_rad);
+    const Eigen::Vector2d t(dx, dy);
+
+    // transform corners to centered panel frame
+    double txmin =  1e300, txmax = -1e300;
+    double tymin =  1e300, tymax = -1e300;
+
+    for (const auto& q : corners) {
+        const Eigen::Vector2d qt = R * q + t;
+        txmin = std::min(txmin, qt.x());
+        txmax = std::max(txmax, qt.x());
+        tymin = std::min(tymin, qt.y());
+        tymax = std::max(tymax, qt.y());
+    }
 
     const double pxmin = -0.5 * panel_lx;
     const double pxmax =  0.5 * panel_lx;
     const double pymin = -0.5 * panel_ly;
     const double pymax =  0.5 * panel_ly;
 
-    if (xmin < pxmin || xmax > pxmax || ymin < pymin || ymax > pymax) {
-        const double dx_min = pxmin - (xmin - dx);
-        const double dx_max = pxmax - (xmax - dx);
-        const double dy_min = pymin - (ymin - dy);
-        const double dy_max = pymax - (ymax - dy);
-
+    if (txmin < pxmin || txmax > pxmax || tymin < pymin || tymax > pymax) {
         std::ostringstream oss;
-        oss << "zigzag offset moves footprint outside panel.\n"
-            << "Requested: dx=" << dx << " m, dy=" << dy << " m\n"
-            << "Allowed dx range: [" << dx_min << ", " << dx_max << "] m\n"
-            << "Allowed dy range: [" << dy_min << ", " << dy_max << "] m";
+        oss << "zigzag transform moves footprint outside panel.\n"
+            << "Requested: dx=" << dx << " m, dy=" << dy << " m, rot=" << rot_rad * 180.0 / M_PI << " deg\n"
+            << "Transformed footprint bounds: "
+            << "x=[" << txmin << ", " << txmax << "] m, "
+            << "y=[" << tymin << ", " << tymax << "] m\n"
+            << "Panel bounds: "
+            << "x=[" << pxmin << ", " << pxmax << "] m, "
+            << "y=[" << pymin << ", " << pymax << "] m";
         throw std::runtime_error(oss.str());
     }
 }
@@ -312,6 +392,10 @@ inline void apply(const MeshType& mesh,
     const double dx = zz.offset_dx_mm * 1e-3;
     const double dy = zz.offset_dy_mm * 1e-3;
 
+    // Precompute inverse rotation for transforming face centroids into zigzag frame
+    const double rot_rad = deg2rad(zz.rotation_deg);
+    const Eigen::Matrix2d Rinv = rot2d(-rot_rad);
+
     // Optionally zero everything first
     if (zz.zero_outside) {
         growthRates_t.setZero();
@@ -336,7 +420,8 @@ inline void apply(const MeshType& mesh,
     const double panel_lx = xmax - xmin;
     const double panel_ly = ymax - ymin;
 
-    checkShiftedFootprintInsidePanel(strips, half_w, panel_lx, panel_ly, dx, dy);
+    // checkShiftedFootprintInsidePanel(strips, half_w, panel_lx, panel_ly, dx, dy);
+    checkTransformedFootprintInsidePanel(strips, half_w, panel_lx, panel_ly, dx, dy, rot_rad);
 
     // For each strip in order: last wins = overwrite as we go
     for (int k = 0; k < (int)strips.size(); ++k) {
@@ -356,8 +441,13 @@ inline void apply(const MeshType& mesh,
 
             // const double d = dist_point_segment_2d(cc, s.a, s.b);
 
-            const Eigen::Vector2d cc = c - center;                 // centered panel frame
-            const Eigen::Vector2d p  = cc - Eigen::Vector2d(dx,dy); // shift into zigzag pattern frame
+            // const Eigen::Vector2d cc = c - center;                 // centered panel frame
+            // const Eigen::Vector2d p  = cc - Eigen::Vector2d(dx,dy); // shift into zigzag pattern frame
+
+            const Eigen::Vector2d cc = c - center;                    // centered panel frame
+            const Eigen::Vector2d q  = cc - Eigen::Vector2d(dx,dy);   // undo translation
+            const Eigen::Vector2d p  = Rinv * q;                      // undo rigid rotation
+            
 
             const double d = dist_point_segment_2d(p, s.a, s.b);
 

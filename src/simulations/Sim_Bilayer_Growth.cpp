@@ -5,7 +5,7 @@
 //  Created by Wim van Rees on 10/27/16.
 //  Modified by Vladislav Sushitskii on 03/29/22.
 //  Modified by Putong Kang on 06/10/24.
-//  Copyright © 2022 Wim van Rees and Vladislav Sushitskii. All rights reserved.
+//  Copyright © 2026 Wim van Rees, Vladislav Sushitskii and Putong Kang. All rights reserved.
 //
 
 #include "Sim_Bilayer_Growth.hpp"
@@ -27,6 +27,8 @@
 
 // ver-0321
 #include "RectSpiralGrowth.hpp"
+
+#include <stdexcept>
 
 static std::vector<int> parse_int_list(const std::string& s)
 {
@@ -78,6 +80,9 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     // - external (projection of a pattern coming from another mesh)
     // - zigzag (zigzag pattern) New function added ver-0203
     // - rect_spiral 
+    // - for PSM project, new case
+    // - panel_ortho (uniform orthotropic growth over the whole panel;
+    //                direct exx/eyy input for top and bottom, optional rotation)
    
     const std::string geometryCase = parser.parse<std::string>("-geometry", ""); //see initForwardProblem()
     const Real margin_x = parser.parse<Real>("-margin_x", 0.0); // margins to simulate the clamping frame: no eigensrain in this zone. 0.001 = 1mm
@@ -120,6 +125,22 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     Eigen::VectorXd growthRates_t(nFaces);
     growthRates_b.setZero();
     growthRates_t.setZero();
+
+    // Orthotropic growth fields: two principal in-plane growth components per face.
+    // When growth_angle = 0, these align with the global x-y axes.
+    Eigen::VectorXd growthRates_1_t(nFaces);
+    Eigen::VectorXd growthRates_1_b(nFaces);
+    Eigen::VectorXd growthRates_2_t(nFaces);
+    Eigen::VectorXd growthRates_2_b(nFaces);
+
+    growthRates_1_t.setZero();
+    growthRates_1_b.setZero();
+    growthRates_2_t.setZero();
+    growthRates_2_b.setZero();
+
+    bool use_direct_ortho = false;
+
+    //
 
     Eigen::VectorXd E_face = Eigen::VectorXd::Constant(nFaces, E);
 
@@ -441,6 +462,112 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
         mesh.getCurrentConfiguration().getVertices() = Vertices;
         mesh.getRestConfiguration().getVertices() = Vertices;
       }
+      else {
+        const std::string growth_tag = parser.template parse<std::string>("-growth_tag", "");
+
+        // specify the number of faces and vertices in the mesh containing the pattern
+        const int nFaces_Reg = parser.template parse<int>("-nFaces_Reg", 2178);
+        const int nVert_Reg = parser.template parse<int>("-nVert_Reg", 1156);
+
+        Eigen::MatrixXi Reg_Vertices(nVert_Reg,3);
+        Eigen::MatrixXi Reg_Faces(nFaces_Reg,3);
+        Eigen::VectorXi Peening_bot(nFaces_Reg);
+        Eigen::VectorXi Peening_top(nFaces_Reg);
+        Eigen::VectorXi Reg_Clusters(nFaces_Reg);
+        Reg_Clusters.setZero();
+
+        // two .txt files that specify "active" elements on the top and bottom layers,
+        // each file contains a vector of 0 or 1, where 1 corresponds to the active elements
+        helpers::read_matrix(growth_tag + "_peening_bot.txt", Peening_bot, nFaces_Reg, 1);
+        helpers::read_matrix(growth_tag + "_peening_top.txt", Peening_top, nFaces_Reg, 1);
+        // two .txt files that define the mesh containing the pattern
+        helpers::read_matrix(growth_tag + "_vertices.txt", Reg_Vertices, nVert_Reg, 3);
+        helpers::read_matrix(growth_tag + "_faces.txt", Reg_Faces, nFaces_Reg, 3);
+
+        //scale the pattern before projection
+        const Real mesh_ratio_x = (Vertices.col(0).maxCoeff() - Vertices.col(0).minCoeff()) / (Reg_Vertices.col(0).maxCoeff() - Reg_Vertices.col(0).minCoeff());
+        const Real mesh_ratio_y = (Vertices.col(1).maxCoeff() - Vertices.col(1).minCoeff()) / (Reg_Vertices.col(1).maxCoeff() - Reg_Vertices.col(1).minCoeff());
+        for (int i=0; i<nVert_Reg; i++){
+          Reg_Vertices(i,0) *= mesh_ratio_x;
+          Reg_Vertices(i,1) *= mesh_ratio_y;
+        }
+
+        const Real CenterX = Reg_Vertices.col(0).mean();
+        const Real CenterY = Reg_Vertices.col(1).mean();
+        for (int i=0; i<nVert_Reg; i++){
+          Reg_Vertices(i,0) -= CenterX;
+          Reg_Vertices(i,1) -= CenterY;
+          Reg_Vertices(i,2) = 0;
+        }
+
+        for (int i=0; i<nFaces_Reg; i++){
+          if(Peening_bot(i)==1){
+            Reg_Clusters(i) = 2;
+          }
+          if(Peening_top(i)==1){
+            Reg_Clusters(i) = 1;
+          }
+        }
+
+        // we draw a circle around each vertex and look if the vertices in the regular pattern
+        // that lie inside this circle are all "activated". This is a simplified formulation that works bad if the pattern is complex
+
+        // So the sizes and positions of the two plates must perfectly coincide!
+
+        //First we assign the IndicV to the initial pattern
+        Eigen::VectorXi IndicV_Reg(nVert_Reg);
+        IndicV_Reg.setZero();
+        for (int i=0; i<nFaces_Reg; i++){
+          if(Reg_Clusters(i)==1 || Reg_Clusters(i)==2){
+            for (int j=0; j<3; j++){
+              IndicV_Reg(Reg_Faces(i,j)) = Reg_Clusters(i);
+            }
+          }
+        }
+
+        //we divide the -lx by number of elms along this side and multiply by sqrt(2)/2 (if it falls exactly in center of square)
+        const Real search_rad = parser.template parse<Real>("-search_rad", ((Reg_Vertices.col(0).maxCoeff() - Reg_Vertices.col(0).minCoeff())/std::sqrt(nFaces_Reg*0.5)) * std::sqrt(2.0)*0.5 * 1.1);
+        for (int i=0; i<nVert; i++){
+          Eigen::VectorXi Inside_Circle(nVert_Reg);
+          Inside_Circle.setZero();
+          int olol=0;
+          for (int j=0; j<nVert_Reg; j++){
+            if (std::pow(Reg_Vertices(j,0) - Vertices(i,0),2) + std::pow(Reg_Vertices(j,1) - Vertices(i,1),2) < std::pow(search_rad*1.01,2)){
+              Inside_Circle(olol) = IndicV_Reg(j);
+              olol ++;
+            }
+          }
+
+          int not_clust_1 = 0;
+          int not_clust_2 = 0;
+          for (int j=0; j<olol; j++){
+            if(Inside_Circle(j) != 1){
+              not_clust_1 = 1;
+            }
+            if(Inside_Circle(j) != 2){
+              not_clust_2 = 1;
+            }
+          }
+
+          if (not_clust_1 == 0){
+            IndicV(i) = 1;
+          } else if (not_clust_2 == 0){
+            IndicV(i) = 2;
+          }
+
+        }
+
+        for (int i=0; i<nFaces; ++i){
+          if (IndicV(Connect(i,0))==1 || IndicV(Connect(i,1))==1 || IndicV(Connect(i,2))==1) {
+            growthRates_b(i) = growthRate_b;
+            growthRates_t(i) = growthRate_t;
+          }
+          else if (IndicV(Connect(i,0))==2 || IndicV(Connect(i,1))==2 || IndicV(Connect(i,2))==2) {
+            growthRates_b(i) = growthRate_t;
+            growthRates_t(i) = growthRate_b;
+          }
+        }
+      }
     }
 
     // ver-0203 ADDED zigzag pattern
@@ -578,149 +705,114 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
                 << " bot[min,max]=[" << vmin(growthRates_b) << "," << vmax(growthRates_b) << "]\n";
     }
 
-      else {
-        const std::string growth_tag = parser.template parse<std::string>("-growth_tag", "");
+    else if (growth_type == "panel_ortho")
+    {
+        const Real exx_top = parser.parse<Real>("-exx_top", 0.001);
+        const Real eyy_top = parser.parse<Real>("-eyy_top", 0.001);
+        const Real exx_bot = parser.parse<Real>("-exx_bot", -0.001);
+        const Real eyy_bot = parser.parse<Real>("-eyy_bot", -0.001);
 
-        // specify the number of faces and vertices in the mesh containing the pattern
-        const int nFaces_Reg = parser.template parse<int>("-nFaces_Reg", 2178);
-        const int nVert_Reg = parser.template parse<int>("-nVert_Reg", 1156);
+        // Optional rotation of the orthotropic frame relative to global x-y
+        growthAngles = Eigen::VectorXd::Constant(nFaces, growthAngle);
 
-        Eigen::MatrixXi Reg_Vertices(nVert_Reg,3);
-        Eigen::MatrixXi Reg_Faces(nFaces_Reg,3);
-        Eigen::VectorXi Peening_bot(nFaces_Reg);
-        Eigen::VectorXi Peening_top(nFaces_Reg);
-        Eigen::VectorXi Reg_Clusters(nFaces_Reg);
-        Reg_Clusters.setZero();
+        // Whole panel active
+        growthRates_1_t = Eigen::VectorXd::Constant(nFaces, exx_top);
+        growthRates_2_t = Eigen::VectorXd::Constant(nFaces, eyy_top);
+        growthRates_1_b = Eigen::VectorXd::Constant(nFaces, exx_bot);
+        growthRates_2_b = Eigen::VectorXd::Constant(nFaces, eyy_bot);
 
-        // two .txt files that specify "active" elements on the top and bottom layers,
-        // each file contains a vector of 0 or 1, where 1 corresponds to the active elements
-        helpers::read_matrix(growth_tag + "_peening_bot.txt", Peening_bot, nFaces_Reg, 1);
-        helpers::read_matrix(growth_tag + "_peening_top.txt", Peening_top, nFaces_Reg, 1);
-        // two .txt files that define the mesh containing the pattern
-        helpers::read_matrix(growth_tag + "_vertices.txt", Reg_Vertices, nVert_Reg, 3);
-        helpers::read_matrix(growth_tag + "_faces.txt", Reg_Faces, nFaces_Reg, 3);
+        // Keep scalar fields populated for diagnostics / compatibility if useful
+        growthRates_t = 0.5 * (growthRates_1_t + growthRates_2_t);
+        growthRates_b = 0.5 * (growthRates_1_b + growthRates_2_b);
 
-        //scale the pattern before projection
-        const Real mesh_ratio_x = (Vertices.col(0).maxCoeff() - Vertices.col(0).minCoeff()) / (Reg_Vertices.col(0).maxCoeff() - Reg_Vertices.col(0).minCoeff());
-        const Real mesh_ratio_y = (Vertices.col(1).maxCoeff() - Vertices.col(1).minCoeff()) / (Reg_Vertices.col(1).maxCoeff() - Reg_Vertices.col(1).minCoeff());
-        for (int i=0; i<nVert_Reg; i++){
-          Reg_Vertices(i,0) *= mesh_ratio_x;
-          Reg_Vertices(i,1) *= mesh_ratio_y;
+        use_direct_ortho = true;
+
+        std::cout << "[panel_ortho] exx_top=" << exx_top
+                  << " eyy_top=" << eyy_top
+                  << " exx_bot=" << exx_bot
+                  << " eyy_bot=" << eyy_bot
+                  << " growth_angle_deg=" << growthAngle * 180.0 / M_PI
+                  << "\n";
+    }
+    
+    else {
+        throw std::runtime_error("Unknown growth type: " + growth_type);
+    }
+
+    // if (margin_x > 0.0 || margin_y > 0.0) MarginCut(margin_x, margin_y, growthRates_b, growthRates_t);
+    if (margin_x > 0.0 || margin_y > 0.0) {
+        if (use_direct_ortho) {
+            MarginCut(margin_x, margin_y, growthRates_1_b, growthRates_1_t);
+            MarginCut(margin_x, margin_y, growthRates_2_b, growthRates_2_t);
+        } else {
+            MarginCut(margin_x, margin_y, growthRates_b, growthRates_t);
         }
-
-        const Real CenterX = Reg_Vertices.col(0).mean();
-        const Real CenterY = Reg_Vertices.col(1).mean();
-        for (int i=0; i<nVert_Reg; i++){
-          Reg_Vertices(i,0) -= CenterX;
-          Reg_Vertices(i,1) -= CenterY;
-          Reg_Vertices(i,2) = 0;
-        }
-
-        for (int i=0; i<nFaces_Reg; i++){
-          if(Peening_bot(i)==1){
-            Reg_Clusters(i) = 2;
-          }
-          if(Peening_top(i)==1){
-            Reg_Clusters(i) = 1;
-          }
-        }
-
-        // we draw a circle around each vertex and look if the vertices in the regular pattern
-        // that lie inside this circle are all "activated". This is a simplified formulation that works bad if the pattern is complex
-
-        // So the sizes and positions of the two plates must perfectly coincide!
-
-        //First we assign the IndicV to the initial pattern
-        Eigen::VectorXi IndicV_Reg(nVert_Reg);
-        IndicV_Reg.setZero();
-        for (int i=0; i<nFaces_Reg; i++){
-          if(Reg_Clusters(i)==1 || Reg_Clusters(i)==2){
-            for (int j=0; j<3; j++){
-              IndicV_Reg(Reg_Faces(i,j)) = Reg_Clusters(i);
-            }
-          }
-        }
-
-        //we divide the -lx by number of elms along this side and multiply by sqrt(2)/2 (if it falls exactly in center of square)
-        const Real search_rad = parser.template parse<Real>("-search_rad", ((Reg_Vertices.col(0).maxCoeff() - Reg_Vertices.col(0).minCoeff())/std::sqrt(nFaces_Reg*0.5)) * std::sqrt(2.0)*0.5 * 1.1);
-        for (int i=0; i<nVert; i++){
-          Eigen::VectorXi Inside_Circle(nVert_Reg);
-          Inside_Circle.setZero();
-          int olol=0;
-          for (int j=0; j<nVert_Reg; j++){
-            if (std::pow(Reg_Vertices(j,0) - Vertices(i,0),2) + std::pow(Reg_Vertices(j,1) - Vertices(i,1),2) < std::pow(search_rad*1.01,2)){
-              Inside_Circle(olol) = IndicV_Reg(j);
-              olol ++;
-            }
-          }
-
-          int not_clust_1 = 0;
-          int not_clust_2 = 0;
-          for (int j=0; j<olol; j++){
-            if(Inside_Circle(j) != 1){
-              not_clust_1 = 1;
-            }
-            if(Inside_Circle(j) != 2){
-              not_clust_2 = 1;
-            }
-          }
-
-          if (not_clust_1 == 0){
-            IndicV(i) = 1;
-          } else if (not_clust_2 == 0){
-            IndicV(i) = 2;
-          }
-
-        }
-
-        for (int i=0; i<nFaces; ++i){
-          if (IndicV(Connect(i,0))==1 || IndicV(Connect(i,1))==1 || IndicV(Connect(i,2))==1) {
-            growthRates_b(i) = growthRate_b;
-            growthRates_t(i) = growthRate_t;
-          }
-          else if (IndicV(Connect(i,0))==2 || IndicV(Connect(i,1))==2 || IndicV(Connect(i,2))==2) {
-            growthRates_b(i) = growthRate_t;
-            growthRates_t(i) = growthRate_b;
-          }
-        }
-      }
-
-    if (margin_x > 0.0 || margin_y > 0.0) MarginCut(margin_x, margin_y, growthRates_b, growthRates_t);
+    }
 
     // Debug, print nonzero counts + min/max
-    std::cout << "[zigzag] after MarginCut: "
-          << "nnz_top=" << nnz(growthRates_t)
-          << " nnz_bot=" << nnz(growthRates_b)
-          << " top[min,max]=[" << vmin(growthRates_t) << "," << vmax(growthRates_t) << "]"
-          << " bot[min,max]=[" << vmin(growthRates_b) << "," << vmax(growthRates_b) << "]\n";
+    // std::cout << "[zigzag] after MarginCut: "
+    //       << "nnz_top=" << nnz(growthRates_t)
+    //       << " nnz_bot=" << nnz(growthRates_b)
+    //       << " top[min,max]=[" << vmin(growthRates_t) << "," << vmax(growthRates_t) << "]"
+    //       << " bot[min,max]=[" << vmin(growthRates_b) << "," << vmax(growthRates_b) << "]\n";
 
+    if (use_direct_ortho) {
+        std::cout << "[panel_ortho] after MarginCut: "
+                  << " top_dir1[min,max]=[" << vmin(growthRates_1_t) << "," << vmax(growthRates_1_t) << "]"
+                  << " top_dir2[min,max]=[" << vmin(growthRates_2_t) << "," << vmax(growthRates_2_t) << "]"
+                  << " bot_dir1[min,max]=[" << vmin(growthRates_1_b) << "," << vmax(growthRates_1_b) << "]"
+                  << " bot_dir2[min,max]=[" << vmin(growthRates_2_b) << "," << vmax(growthRates_2_b) << "]\n";
+    } else {
+        std::cout << "[growth] after MarginCut: "
+                  << "nnz_top=" << nnz(growthRates_t)
+                  << " nnz_bot=" << nnz(growthRates_b)
+                  << " top[min,max]=[" << vmin(growthRates_t) << "," << vmax(growthRates_t) << "]"
+                  << " bot[min,max]=[" << vmin(growthRates_b) << "," << vmax(growthRates_b) << "]\n";
+    }
+
+    // Might be an issue for other cases than zigzag if some faces are completely inactive, which causes issues for the growth helper. So we set them to zero growth and zero orthotropic coefficient explicitly here.
+    // const double eps0 = 1e-20;
+    // for (int i=0; i<nFaces; ++i) {
+    //     if (std::abs(growthRates_t(i)) + std::abs(growthRates_b(i)) <= eps0) {
+    //         passCountFaces(i) = 0;
+    //     }
+    // }
     const double eps0 = 1e-20;
     for (int i=0; i<nFaces; ++i) {
-        if (std::abs(growthRates_t(i)) + std::abs(growthRates_b(i)) <= eps0) {
-            passCountFaces(i) = 0;
+        if (use_direct_ortho) {
+            const Real mag =
+                std::abs(growthRates_1_t(i)) + std::abs(growthRates_2_t(i)) +
+                std::abs(growthRates_1_b(i)) + std::abs(growthRates_2_b(i));
+            if (mag <= eps0) passCountFaces(i) = 0;
+        } else {
+            if (std::abs(growthRates_t(i)) + std::abs(growthRates_b(i)) <= eps0) {
+                passCountFaces(i) = 0;
+            }
         }
     }
 
     // const Eigen::VectorXd growthAngles = Eigen::VectorXd::Constant(nFaces, growthAngle);
 
-    Eigen::VectorXd growthRates_1_t(nFaces);
-    Eigen::VectorXd growthRates_1_b(nFaces);
-    Eigen::VectorXd growthRates_2_t(nFaces);
-    Eigen::VectorXd growthRates_2_b(nFaces);
+    // Eigen::VectorXd growthRates_1_t(nFaces);
+    // Eigen::VectorXd growthRates_1_b(nFaces);
+    // Eigen::VectorXd growthRates_2_t(nFaces);
+    // Eigen::VectorXd growthRates_2_b(nFaces);
 
     // for (int i=0; i<nFaces; i++){
-    //   growthRates_1_t(i) = growthRates_t(i)*(1.0+ortho_coeff);
-    //   growthRates_1_b(i) = growthRates_b(i)*(1.0+ortho_coeff);
-    //   growthRates_2_t(i) = growthRates_t(i)*(1.0-ortho_coeff);
-    //   growthRates_2_b(i) = growthRates_b(i)*(1.0-ortho_coeff);
+    //   const Real oc = orthoCoeffFaces(i);
+    //   growthRates_1_t(i) = growthRates_t(i)*(1.0+oc);
+    //   growthRates_1_b(i) = growthRates_b(i)*(1.0+oc);
+    //   growthRates_2_t(i) = growthRates_t(i)*(1.0-oc);
+    //   growthRates_2_b(i) = growthRates_b(i)*(1.0-oc);
     // }
-
-    for (int i=0; i<nFaces; i++){
-      const Real oc = orthoCoeffFaces(i);
-      growthRates_1_t(i) = growthRates_t(i)*(1.0+oc);
-      growthRates_1_b(i) = growthRates_b(i)*(1.0+oc);
-      growthRates_2_t(i) = growthRates_t(i)*(1.0-oc);
-      growthRates_2_b(i) = growthRates_b(i)*(1.0-oc);
+    if (!use_direct_ortho) {
+        for (int i=0; i<nFaces; i++){
+          const Real oc = orthoCoeffFaces(i);
+          growthRates_1_t(i) = growthRates_t(i)*(1.0+oc);
+          growthRates_1_b(i) = growthRates_b(i)*(1.0+oc);
+          growthRates_2_t(i) = growthRates_t(i)*(1.0-oc);
+          growthRates_2_b(i) = growthRates_b(i)*(1.0-oc);
+        }
     }
 
     GrowthHelper<tMesh>::computeAbarsOrthoGrowth(mesh, growthAngles, growthRates_1_b, growthRates_2_b, mesh.getRestConfiguration().getFirstFundamentalForms<bottom>());

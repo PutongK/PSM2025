@@ -103,21 +103,21 @@ ninja -j"$(nproc)" | tee build
 
 # mkdir for run folders
 cd ~/workspace/src/PSM2025
-rm -rf run/testtol/
-mkdir -p run/testtol/
-cp bin/shell run/testtol/
-cd run/testtol
+rm -rf run/spiral_square_1st/
+mkdir -p run/spiral_square_1st/
+cp bin/shell run/spiral_square_1st/
+cd run/spiral_square_1st
 
 cd ~/workspace/src/PSM2025
-mkdir -p run/test_angle_E/
-cp bin/shell run/test_angle_E/
-cd run/test_angle_E
+mkdir -p run/PSM_45_1_test/
+cp bin/shell run/PSM_45_1_test/
+cd run/PSM_45_1_test
 
 # mkdir for batch run folders
 cd ~/workspace/src/PSM2025
-mkdir -p run/BatchRun_offset/
-cp bin/shell run/BatchRun_offset/
-cd run/BatchRun_offset
+mkdir -p run/Batch_seventh/
+cp bin/shell run/Batch_seventh/
+cd run/Batch_seventh
 
 
 # Call pvpython for batch manipulations
@@ -155,7 +155,7 @@ time ./shell \
   -lx 0.152 -ly 0.025 \
   -patch_lx 0.120 -patch_ly 0.010 -patch_x_from_left 0.120 -patch_yc 0.0 \
   -res 0.01 \
-  -h_total 0.0006 \
+  -h_total 0.0005 \
   -growth_type patch \
   -growth_top  0.003 \
   -growth_bot 0.000 \
@@ -325,3 +325,131 @@ time ./shell \
   -nsteps 1 \
   -export_stl true \
   -tol 3e-12
+
+# Test run for experimental strip
+time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.152 -ly 0.025 \
+  -patch_lx 0.120 -patch_ly 0.010 -patch_x_from_left 0.120 -patch_yc 0.0 \
+  -res 0.01 \
+  -h_total 0.0005 \
+  -growth_type patch \
+  -growth_top  0.003 \
+  -growth_bot 0.000 \
+  -growth_angle 0.0 \
+  -ortho_coeff 0.0 \
+  -nsteps 1 \
+  -export_stl true \
+  -tol 3e-12
+
+# spiral
+time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.152 -ly 0.152 \
+  -res 0.01 \
+  -h_total 0.0005 \
+  -growth_type rect_spiral \
+  -spiral_Lx0_mm 240 \
+  -spiral_Ly0_mm 240 \
+  -spiral_gap_mm 20.0 \
+  -spiral_w_mm 10.0 \
+  -spiral_min_leg_mm 100.0 \
+  -spiral_offset_dx_mm 0.0 \
+  -spiral_offset_dy_mm 0.0 \
+  -spiral_gtop 0.003 \
+  -spiral_gbot 0.000 \
+  -spiral_ortho 0.3 \
+  -nsteps 1 \
+  -export_stl true \
+  -tol 3e-12
+
+  # Test zigzag with rotation
+  time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.13 -ly 0.16 \
+  -res 0.01 \
+  -h_total 0.0005 \
+  -growth_type zigzag \
+  -zigzag_lv_mm 140 \
+  -zigzag_alpha_deg 9.13 \
+  -zigzag_N 10 \
+  -zigzag_w_mm 10 \
+  -zigzag_offset_dx_mm 0 \
+  -zigzag_offset_dy_mm 0 \
+  -zigzag_rotation_deg 30 \
+  -zigzag_gtop_list 0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003 \
+  -zigzag_gbot_list 0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000 \
+  -zigzag_ortho_list 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0 \
+  -enable_passE false \
+  -nsteps 1 \
+  -export_stl true \
+  -tol 3e-12
+
+
+  -zigzag_profile_mode center_peak \
+  -zigzag_top_end_ratio 0.4 \
+  -zigzag_top_profile_power 2.0 \
+
+  # New case for PSM2025
+  time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.025 -ly 0.025 \
+  -res 0.01 \
+  -h_total 0.0005 \
+  -growth_type panel_ortho \
+  -exx_top 0.004 \
+  -eyy_top 0.006 \
+  -exx_bot 0.0002 \
+  -eyy_bot 0.0001 \
+  -growth_angle 0 \
+  -nsteps 1 \
+  -tol 3e-12
+
+time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.025 -ly 0.025 \
+  -res 0.01 \
+  -h_total 0.0005 \
+  -growth_type parallel_lines \
+  -growth_angle 45 \
+  -parline_width_mm 0.4 \
+  -parline_spacing_mm 0.5 \
+  -parline_offset_mm 0.0 \
+  -parline_exx_top 1.121951e-02 \
+  -parline_exx_bot 6.322867e-04 \
+  -parline_eyy_top 1.707415e-02 \
+  -parline_eyy_bot 3.937804e-04 \
+  -nsteps 1 \
+  -export_stl true \
+  -tol 1e-12
+
+  -parline_width_mm 4.000000e-01 \
+  -parline_spacing_mm 5.000000e-01 \
+  -parline_offset_mm 0.0 \
+  -parline_exx_top 9.761704e-03 \
+  -parline_exx_bot 5.348677e-04 \
+  -parline_eyy_top 1.512396e-02 \
+  -parline_eyy_bot 2.393107e-04
+
+-parline_exx_bot 6.453090e-04 -parline_exx_top 1.031845e-02 -parline_eyy_bot 2.828497e-04 -parline_eyy_top 1.703314e-02
+
+-parline_exx_top 1.045307e-02 \-parline_exx_bot 5.519181e-04 \-parline_eyy_top 1.556916e-02 \-parline_eyy_bot 3.058952e-04 \ 
+
+-parline_exx_top 1.126243e-02 \-parline_exx_bot 6.387357e-04 \-parline_eyy_top 1.706282e-02 \-parline_eyy_bot 3.663601e-04 \
+
+-parline_exx_top 1.121951e-02 \-parline_exx_bot 6.322867e-04 \-parline_eyy_top 1.707415e-02 \-parline_eyy_bot 3.937804e-04 \
+
+cd ~/workspace/src/PSM2025
+mkdir -p run/PSM_45_050/
+cp bin/shell run/PSM_45_050/
+cd run/PSM_45_050

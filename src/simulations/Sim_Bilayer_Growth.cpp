@@ -83,6 +83,7 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     // - for PSM project, new case
     // - panel_ortho (uniform orthotropic growth over the whole panel;
     //                direct exx/eyy input for top and bottom, optional rotation)
+    // - parallel_lines (uniform repeated parallel treated bands with direct exx/eyy bilayer inputs)
    
     const std::string geometryCase = parser.parse<std::string>("-geometry", ""); //see initForwardProblem()
     const Real margin_x = parser.parse<Real>("-margin_x", 0.0); // margins to simulate the clamping frame: no eigensrain in this zone. 0.001 = 1mm
@@ -732,6 +733,102 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
                   << " exx_bot=" << exx_bot
                   << " eyy_bot=" << eyy_bot
                   << " growth_angle_deg=" << growthAngle * 180.0 / M_PI
+                  << "\n";
+    }
+
+    else if (growth_type == "parallel_lines")
+    {
+        const Real width_mm   = parser.parse<Real>("-parline_width_mm", 1.0);
+        const Real spacing_mm = parser.parse<Real>("-parline_spacing_mm", 2.0);
+        const Real offset_mm  = parser.parse<Real>("-parline_offset_mm", 0.0);
+
+        const Real exx_top = parser.parse<Real>("-parline_exx_top", 0.001);
+        const Real exx_bot = parser.parse<Real>("-parline_exx_bot", -0.001);
+        const Real eyy_top = parser.parse<Real>("-parline_eyy_top", 0.0);
+        const Real eyy_bot = parser.parse<Real>("-parline_eyy_bot", 0.0);
+
+        if (spacing_mm <= 0.0) {
+            throw std::runtime_error("parallel_lines: spacing must be > 0");
+        }
+        if (width_mm <= 0.0) {
+            throw std::runtime_error("parallel_lines: width must be > 0");
+        }
+        if (width_mm > spacing_mm) {
+            throw std::runtime_error("parallel_lines: width must be <= spacing");
+        }
+
+        const Real width   = width_mm   * 1e-3;  // mm -> m
+        const Real spacing = spacing_mm * 1e-3;  // mm -> m
+        const Real offset  = offset_mm  * 1e-3;  // mm -> m
+
+        const Real theta = growthAngle;
+
+        // Tangent direction of the lines
+        const Real tx = std::cos(theta);
+        const Real ty = std::sin(theta);
+
+        // Normal direction across the lines
+        const Real nx_dir = -std::sin(theta);
+        const Real ny_dir =  std::cos(theta);
+
+        // Use direct orthotropic input
+        use_direct_ortho = true;
+
+        // Principal material frame used by computeAbarsOrthoGrowth
+        growthAngles = Eigen::VectorXd::Constant(nFaces, theta);
+
+        for (int i = 0; i < nFaces; ++i)
+        {
+            const int v0 = Connect(i, 0);
+            const int v1 = Connect(i, 1);
+            const int v2 = Connect(i, 2);
+
+            const Real xc = (Vertices(v0,0) + Vertices(v1,0) + Vertices(v2,0)) / 3.0;
+            const Real yc = (Vertices(v0,1) + Vertices(v1,1) + Vertices(v2,1)) / 3.0;
+
+            // Coordinate across the parallel lines
+            const Real s = xc * nx_dir + yc * ny_dir - offset;
+
+            // Fold into one period, centered about zero
+            Real s_mod = std::fmod(s, spacing);
+            if (s_mod < 0.0) s_mod += spacing;
+            if (s_mod > 0.5 * spacing) s_mod -= spacing;
+
+            const bool in_line = (std::abs(s_mod) <= 0.5 * width);
+
+            if (in_line)
+            {
+                growthRates_1_t(i) = exx_top;
+                growthRates_1_b(i) = exx_bot;
+                growthRates_2_t(i) = eyy_top;
+                growthRates_2_b(i) = eyy_bot;
+
+                // Compatibility/debug only
+                growthRates_t(i) = 0.5 * (exx_top + eyy_top);
+                growthRates_b(i) = 0.5 * (exx_bot + eyy_bot);
+            }
+            else
+            {
+                growthRates_1_t(i) = 0.0;
+                growthRates_1_b(i) = 0.0;
+                growthRates_2_t(i) = 0.0;
+                growthRates_2_b(i) = 0.0;
+
+                growthRates_t(i) = 0.0;
+                growthRates_b(i) = 0.0;
+            }
+        }
+
+        std::cout << "[parallel_lines] width_mm=" << width_mm
+                  << " spacing_mm=" << spacing_mm
+                  << " offset_mm=" << offset_mm
+                  << " angle_deg=" << growthAngle * 180.0 / M_PI
+                  << "\n";
+
+        std::cout << "[parallel_lines] exx_top=" << exx_top
+                  << " exx_bot=" << exx_bot
+                  << " eyy_top=" << eyy_top
+                  << " eyy_bot=" << eyy_bot
                   << "\n";
     }
     

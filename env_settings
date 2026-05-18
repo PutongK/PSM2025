@@ -44,6 +44,8 @@ mkdir -p run/quicktest_branch5
 cp bin/shell run/quicktest_branch5/
 cd run/quicktest_branch5
 
+cp bin/shell run/json_run_test/
+
 # run (original test case, quick test for growth)
 ./shell -sim monolayer_growth -case basic_disk -h 0.01 -innerR 0.05 -res 128 -s1 0.05 -s2 0.0
 
@@ -450,6 +452,21 @@ time ./shell \
 -parline_exx_top 1.121951e-02 \-parline_exx_bot 6.322867e-04 \-parline_eyy_top 1.707415e-02 \-parline_eyy_bot 3.937804e-04 \
 
 cd ~/workspace/src/PSM2025
-mkdir -p run/PSM_45_050/
-cp bin/shell run/PSM_45_050/
-cd run/PSM_45_050
+mkdir -p run/PSM_test/
+cp bin/shell run/PSM_test/
+cd run/PSM_test
+
+time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -growth_type multi_parallel_lines \
+  -patch_file patches_multi_parallel_lines_example.json \
+  -lx 0.05 \
+  -ly 0.05 \
+  -res 0.01 \
+  -h_total 0.0005 \
+  -nsteps 1 \
+  -tol 3e-12
+
+  cp bin/shell run/json_zigzag/

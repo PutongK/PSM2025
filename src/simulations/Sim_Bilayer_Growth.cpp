@@ -28,6 +28,10 @@
 // ver-0321
 #include "RectSpiralGrowth.hpp"
 
+// ver-multipatch
+#include "MultiParallelLinesGrowth.hpp"
+#include "MultiZigZagGrowth.hpp"
+
 #include <stdexcept>
 
 static std::vector<int> parse_int_list(const std::string& s)
@@ -84,6 +88,8 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     // - panel_ortho (uniform orthotropic growth over the whole panel;
     //                direct exx/eyy input for top and bottom, optional rotation)
     // - parallel_lines (uniform repeated parallel treated bands with direct exx/eyy bilayer inputs)
+    // - multi_parallel_lines (JSON-defined quadrilateral patches with patch-clipped parallel lines)
+    // - multi_zigzag (JSON-defined rectangular patches with patch-centered zigzag paths)
    
     const std::string geometryCase = parser.parse<std::string>("-geometry", ""); //see initForwardProblem()
     const Real margin_x = parser.parse<Real>("-margin_x", 0.0); // margins to simulate the clamping frame: no eigensrain in this zone. 0.001 = 1mm
@@ -734,6 +740,66 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
                   << " eyy_bot=" << eyy_bot
                   << " growth_angle_deg=" << growthAngle * 180.0 / M_PI
                   << "\n";
+    }
+
+
+
+    else if (growth_type == "multi_zigzag")
+    {
+        const std::string patch_file = parser.parse<std::string>("-patch_file", "");
+        if (patch_file.empty()) {
+            throw std::runtime_error("multi_zigzag: please provide -patch_file patches.json");
+        }
+
+        // multi_zigzag uses the scalar growth representation, like the original zigzag branch.
+        // Patches are currently restricted to rectangles and are clipped by the patch boundary.
+        passCountFaces.setZero();
+
+        multi_zigzag::apply(mesh, patch_file,
+                            growthRates_t, growthRates_b,
+                            growthAngles, orthoCoeffFaces,
+                            &passCountFaces);
+
+        std::cout << "[multi_zigzag] after apply: "
+                  << "nnz_top=" << nnz(growthRates_t)
+                  << " nnz_bot=" << nnz(growthRates_b)
+                  << " top[min,max]=[" << vmin(growthRates_t) << "," << vmax(growthRates_t) << "]"
+                  << " bot[min,max]=[" << vmin(growthRates_b) << "," << vmax(growthRates_b) << "]\n";
+    }
+
+    else if (growth_type == "multi_parallel_lines")
+    {
+        const std::string patch_file = parser.parse<std::string>("-patch_file", "");
+        if (patch_file.empty()) {
+            throw std::runtime_error("multi_parallel_lines: please provide -patch_file patches.json");
+        }
+
+        use_direct_ortho = true;
+
+        // Eigen::VectorXi patchHitCount(nFaces);
+        // patchHitCount.setZero();
+
+        // multi_parallel_lines::apply(mesh, patch_file,
+        //                             growthRates_1_t, growthRates_1_b,
+        //                             growthRates_2_t, growthRates_2_b,
+        //                             growthRates_t, growthRates_b,
+        //                             growthAngles,
+        //                             &patchHitCount);
+
+        passCountFaces.setZero();
+
+        multi_parallel_lines::apply(mesh, patch_file,
+                                    growthRates_1_t, growthRates_1_b,
+                                    growthRates_2_t, growthRates_2_b,
+                                    growthRates_t, growthRates_b,
+                                    growthAngles,
+                                    &passCountFaces);
+
+        std::cout << "[multi_parallel_lines] after apply: "
+                  << "nnz_top=" << nnz(growthRates_t)
+                  << " nnz_bot=" << nnz(growthRates_b)
+                  << " top[min,max]=[" << vmin(growthRates_t) << "," << vmax(growthRates_t) << "]"
+                  << " bot[min,max]=[" << vmin(growthRates_b) << "," << vmax(growthRates_b) << "]\n";
     }
 
     else if (growth_type == "parallel_lines")

@@ -83,13 +83,15 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     // - circle (circular zone in the center of the plate)
     // - external (projection of a pattern coming from another mesh)
     // - zigzag (zigzag pattern) New function added ver-0203
-    // - rect_spiral 
+    // - rect_spiral
+    // - multi_zigzag (JSON-defined rectangular patches with patch-centered zigzag paths)
+
     // - for PSM project, new case
     // - panel_ortho (uniform orthotropic growth over the whole panel;
     //                direct exx/eyy input for top and bottom, optional rotation)
     // - parallel_lines (uniform repeated parallel treated bands with direct exx/eyy bilayer inputs)
     // - multi_parallel_lines (JSON-defined quadrilateral patches with patch-clipped parallel lines)
-    // - multi_zigzag (JSON-defined rectangular patches with patch-centered zigzag paths)
+  
    
     const std::string geometryCase = parser.parse<std::string>("-geometry", ""); //see initForwardProblem()
     const Real margin_x = parser.parse<Real>("-margin_x", 0.0); // margins to simulate the clamping frame: no eigensrain in this zone. 0.001 = 1mm

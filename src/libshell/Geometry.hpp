@@ -4,6 +4,7 @@
 //
 //  Created by Wim van Rees on 2/24/16.
 //  Modified by Vladislav Sushitskii on 03/29/22.
+//  Modified by Putong Kang on 07/10/26.
 //  Copyright © 2022 Wim van Rees and Vladislav Sushitskii. All rights reserved.
 //
 
@@ -19,6 +20,7 @@
 
 #include <string>
 #include <algorithm>
+#include <stdexcept> // Updates @07/17: validation for analytical curved geometry
 
 #include "ReadVTK.hpp"
 #include <igl/readOFF.h>
@@ -550,6 +552,113 @@ public:
     Real getDx() const {return dX;}
     Real getDy() const {return dY;}
 };
+
+
+// Updates @07/17:
+// Analytical cylindrical panel with the same regular right-angle topology as
+// RectangularPlate_RightAngle. The input (u,v) material domain is
+// [-halfEdgeX,halfEdgeX] x [-halfEdgeY,halfEdgeY], and curvature is applied
+// across the material v/y direction:
+//
+//     X(u,v) = [ u,
+//                R sin(v/R),
+//                s R (1 - cos(v/R)) ]
+//
+// where R > 0 and s = +/-1 controls the curvature sign.
+//
+// This class intentionally keeps the topology identical to the flat regular
+// rectangle so that face i in the flat material domain maps directly to face i
+// on the curved shell.
+class CurvedRectangularPlate_RightAngle : public ShellGeometry
+{
+protected:
+    const Real halfEdgeX;
+    const Real halfEdgeY;
+    const Real edgeLength;
+    const Real radius;
+    const Real curvatureSign;
+
+    virtual void getShellGeometry(Eigen::MatrixXd & vertices,
+                                  Eigen::MatrixXi & face2vertices,
+                                  Eigen::MatrixXb & vertices_bc) const override
+    {
+        if(radius <= 0.0)
+            throw std::runtime_error(
+                "CurvedRectangularPlate_RightAngle: radius must be > 0.");
+
+        // Avoid a full wrap/self-overlap in this first analytical test case.
+        // The total opening angle is 2*halfEdgeY/radius.
+        if(halfEdgeY / radius >= M_PI)
+            throw std::runtime_error(
+                "CurvedRectangularPlate_RightAngle: halfEdgeY/radius must be < pi.");
+
+        // Generate the exact same structured mesh and face indexing as the
+        // existing flat right-angle rectangular panel.
+        RectangularPlate_RightAngle flatPlate(
+            halfEdgeX, halfEdgeY, edgeLength, false, false);
+        flatPlate.get(vertices, face2vertices, vertices_bc);
+
+        // Map the original flat material coordinates (u,v) onto the cylinder.
+        const int nVertices = vertices.rows();
+        for(int i = 0; i < nVertices; ++i)
+        {
+            const Real u = vertices(i,0);
+            const Real v = vertices(i,1);
+            const Real theta = v / radius;
+
+            vertices(i,0) = u;
+            vertices(i,1) = radius * std::sin(theta);
+            vertices(i,2) = curvatureSign * radius * (1.0 - std::cos(theta));
+        }
+
+        // The flat connectivity should already preserve orientation under this
+        // regular mapping. This check also makes the class robust to later
+        // changes in mesh generation.
+        const int nFlipped = orientNormalsOutwards(vertices, face2vertices);
+        if(verbose)
+        {
+            std::cout
+                << "[curved_rectangle] R=" << radius
+                << ", sign=" << curvatureSign
+                << ", half opening angle=" << halfEdgeY / radius
+                << " rad, flipped faces=" << nFlipped
+                << std::endl;
+        }
+    }
+
+public:
+    CurvedRectangularPlate_RightAngle(const Real halfX,
+                                      const Real halfY,
+                                      const Real targetEdgeLength,
+                                      const Real cylinderRadius,
+                                      const Real sign = 1.0):
+    halfEdgeX(halfX),
+    halfEdgeY(halfY),
+    edgeLength(targetEdgeLength),
+    radius(cylinderRadius),
+    curvatureSign(sign >= 0.0 ? 1.0 : -1.0)
+    {}
+
+    // Analytical midsurface normal. The cylindrical centerline is located at
+    // z = curvatureSign*radius.
+    virtual Eigen::Vector3d getNormal(const Eigen::Vector3d pos) const override
+    {
+        Eigen::Vector3d n;
+        n << 0.0,
+             -curvatureSign * pos(1),
+             radius - curvatureSign * pos(2);
+
+        const Real nNorm = n.norm();
+        if(nNorm <= std::numeric_limits<Real>::epsilon())
+            return (Eigen::Vector3d() << 0.0, 0.0, 1.0).finished();
+
+        return n / nNorm;
+    }
+
+    Real getRadius() const { return radius; }
+    Real getCurvatureSign() const { return curvatureSign; }
+};
+
 
 
 class RectangularPlate_RightAngle_Clamped : public PlateGeometry //Vlad

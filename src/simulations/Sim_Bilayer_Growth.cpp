@@ -124,6 +124,57 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     const auto Connect = mesh.getTopology().getFace2Vertices();
     const int nFaces = mesh.getNumberOfFaces();
 
+    // Updates @07/17:
+    // Keep a separate flat/material coordinate array (u,v) for defining the
+    // toolpath. For the analytical cylindrical panel, recover v from the
+    // known inverse cylindrical mapping. The mechanics continue to use the
+    // curved rest vertices X(u,v).
+    const bool use_curved_material_mapping =
+        (geometryCase == "curved_rectangle");
+
+    Eigen::MatrixXd materialCoordinates(nVert, 2);
+    {
+        const Eigen::MatrixXd Xrest =
+            mesh.getRestConfiguration().getVertices();
+
+        if(use_curved_material_mapping)
+        {
+            const Real curve_radius =
+                parser.parse<Real>("-curve_radius", 0.25);
+            const Real curve_sign_input =
+                parser.parse<Real>("-curve_sign", 1.0);
+            const Real curve_sign =
+                (curve_sign_input >= 0.0) ? 1.0 : -1.0;
+
+            if(curve_radius <= 0.0)
+                throw std::runtime_error(
+                    "curved_rectangle: -curve_radius must be > 0.");
+
+            for(int i = 0; i < nVert; ++i)
+            {
+                const Real u = Xrest(i,0);
+
+                // From:
+                // y = R sin(v/R)
+                // z = s R (1-cos(v/R))
+                // therefore:
+                // v = R atan2(y, R-s z)
+                const Real v = curve_radius * std::atan2(
+                    Xrest(i,1),
+                    curve_radius - curve_sign * Xrest(i,2));
+
+                materialCoordinates(i,0) = u;
+                materialCoordinates(i,1) = v;
+            }
+        }
+        else
+        {
+            // Existing flat geometries: material coordinates coincide with
+            // the rest x-y coordinates.
+            materialCoordinates = Xrest.leftCols(2);
+        }
+    }
+
     Eigen::VectorXi passCountFaces(nFaces);
     passCountFaces.setZero();
 
@@ -645,17 +696,44 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
         << " ortho_list size=" << ortho_list.size()
         << "\n";
 
-      Eigen::VectorXi passCountFaces(nFaces);
+      // Updates @07/17:
+      // Use the outer passCountFaces array so the coverage history remains
+      // available after this branch for diagnostics and later extensions.
       passCountFaces.setZero();
 
-      zigzag::apply(mesh, zz, gtop_list, gbot_list, ortho_list,
-                    growthRates_t, growthRates_b,
-                    growthAngles, orthoCoeffFaces,
-                    &passCountFaces);
-
-      // zigzag::apply(mesh, zz, gtop_list, gbot_list, ortho_list,
-      //               growthRates_t, growthRates_b,
-      //               growthAngles, orthoCoeffFaces);
+      if(use_curved_material_mapping)
+      {
+          // Define coverage and direction in the original flat/material
+          // coordinates, then map the selected faces to the curved mesh by
+          // shared topology/indexing.
+          zigzag::applyMaterialCoordinates(
+              materialCoordinates,
+              Connect,
+              zz,
+              gtop_list,
+              gbot_list,
+              ortho_list,
+              growthRates_t,
+              growthRates_b,
+              growthAngles,
+              orthoCoeffFaces,
+              &passCountFaces);
+      }
+      else
+      {
+          // Preserve the existing flat-panel path for regression.
+          zigzag::apply(
+              mesh,
+              zz,
+              gtop_list,
+              gbot_list,
+              ortho_list,
+              growthRates_t,
+              growthRates_b,
+              growthAngles,
+              orthoCoeffFaces,
+              &passCountFaces);
+      }
 
       // Debug, print nonzero counts + min/max
       std::cout << "[zigzag] list sizes: gtop=" << gtop_list.size()
@@ -904,13 +982,80 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
         throw std::runtime_error("Unknown growth type: " + growth_type);
     }
 
-    // if (margin_x > 0.0 || margin_y > 0.0) MarginCut(margin_x, margin_y, growthRates_b, growthRates_t);
-    if (margin_x > 0.0 || margin_y > 0.0) {
-        if (use_direct_ortho) {
-            MarginCut(margin_x, margin_y, growthRates_1_b, growthRates_1_t);
-            MarginCut(margin_x, margin_y, growthRates_2_b, growthRates_2_t);
-        } else {
-            MarginCut(margin_x, margin_y, growthRates_b, growthRates_t);
+    // Updates @07/17:
+    // On a curved panel, define the no-growth margin in the original
+    // material domain, not in the projected spatial x-y coordinates.
+    auto MarginCutMaterialCoordinates =
+        [&](const Real margin_u,
+            const Real margin_v,
+            Eigen::Ref<Eigen::VectorXd> rates_bot,
+            Eigen::Ref<Eigen::VectorXd> rates_top)
+        {
+            const Real uMin = materialCoordinates.col(0).minCoeff();
+            const Real uMax = materialCoordinates.col(0).maxCoeff();
+            const Real vMin = materialCoordinates.col(1).minCoeff();
+            const Real vMax = materialCoordinates.col(1).maxCoeff();
+
+            Eigen::VectorXi boundaryVertex(nVert);
+            boundaryVertex.setZero();
+
+            for(int i = 0; i < nVert; ++i)
+            {
+                const Real u = materialCoordinates(i,0);
+                const Real v = materialCoordinates(i,1);
+
+                if(u <= uMin + margin_u ||
+                   u >= uMax - margin_u ||
+                   v <= vMin + margin_v ||
+                   v >= vMax - margin_v)
+                    boundaryVertex(i) = 1;
+            }
+
+            for(int i = 0; i < nFaces; ++i)
+            {
+                if(boundaryVertex(Connect(i,0)) == 1 &&
+                   boundaryVertex(Connect(i,1)) == 1 &&
+                   boundaryVertex(Connect(i,2)) == 1)
+                {
+                    rates_bot(i) = 0.0;
+                    rates_top(i) = 0.0;
+                }
+            }
+        };
+
+    if (margin_x > 0.0 || margin_y > 0.0)
+    {
+        if (use_direct_ortho)
+        {
+            if(use_curved_material_mapping)
+            {
+                MarginCutMaterialCoordinates(
+                    margin_x, margin_y,
+                    growthRates_1_b, growthRates_1_t);
+                MarginCutMaterialCoordinates(
+                    margin_x, margin_y,
+                    growthRates_2_b, growthRates_2_t);
+            }
+            else
+            {
+                MarginCut(
+                    margin_x, margin_y,
+                    growthRates_1_b, growthRates_1_t);
+                MarginCut(
+                    margin_x, margin_y,
+                    growthRates_2_b, growthRates_2_t);
+            }
+        }
+        else
+        {
+            if(use_curved_material_mapping)
+                MarginCutMaterialCoordinates(
+                    margin_x, margin_y,
+                    growthRates_b, growthRates_t);
+            else
+                MarginCut(
+                    margin_x, margin_y,
+                    growthRates_b, growthRates_t);
         }
     }
 
@@ -980,8 +1125,124 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
         }
     }
 
-    GrowthHelper<tMesh>::computeAbarsOrthoGrowth(mesh, growthAngles, growthRates_1_b, growthRates_2_b, mesh.getRestConfiguration().getFirstFundamentalForms<bottom>());
-    GrowthHelper<tMesh>::computeAbarsOrthoGrowth(mesh, growthAngles, growthRates_1_t, growthRates_2_t, mesh.getRestConfiguration().getFirstFundamentalForms<top>());
+    // Updates @07/17:
+    // Convert each material-space growth angle into a 3D tangent direction on
+    // the curved rest surface. Flat cases continue to use the legacy angle-
+    // based growth helper.
+    Eigen::MatrixXd growthDirections3D;
+    if(use_curved_material_mapping)
+    {
+        GrowthHelper<tMesh>::mapMaterialAnglesToShellDirections(
+            mesh,
+            materialCoordinates,
+            growthAngles,
+            growthDirections3D);
+    }
+
+    auto updateRestMetrics =
+        [&]()
+        {
+            if(use_curved_material_mapping)
+            {
+                GrowthHelper<tMesh>::computeAbarsOrthoGrowthShell(
+                    mesh,
+                    growthDirections3D,
+                    growthRates_1_b,
+                    growthRates_2_b,
+                    mesh.getRestConfiguration()
+                        .getFirstFundamentalForms<bottom>());
+
+                GrowthHelper<tMesh>::computeAbarsOrthoGrowthShell(
+                    mesh,
+                    growthDirections3D,
+                    growthRates_1_t,
+                    growthRates_2_t,
+                    mesh.getRestConfiguration()
+                        .getFirstFundamentalForms<top>());
+            }
+            else
+            {
+                GrowthHelper<tMesh>::computeAbarsOrthoGrowth(
+                    mesh,
+                    growthAngles,
+                    growthRates_1_b,
+                    growthRates_2_b,
+                    mesh.getRestConfiguration()
+                        .getFirstFundamentalForms<bottom>());
+
+                GrowthHelper<tMesh>::computeAbarsOrthoGrowth(
+                    mesh,
+                    growthAngles,
+                    growthRates_1_t,
+                    growthRates_2_t,
+                    mesh.getRestConfiguration()
+                        .getFirstFundamentalForms<top>());
+            }
+        };
+
+    updateRestMetrics();
+
+    // Updates @07/17:
+    // Write a dedicated mapping diagnostic before minimization. This file lets
+    // us verify the unwrapped material coordinates, selected faces, mapped 3D
+    // path directions, and tangency to the curved panel.
+    if(use_curved_material_mapping)
+    {
+        const Eigen::MatrixXd Xrest =
+            mesh.getRestConfiguration().getVertices();
+
+        WriteVTK mappingWriter(Xrest, Connect);
+
+        Eigen::VectorXd materialU = materialCoordinates.col(0);
+        Eigen::VectorXd materialV = materialCoordinates.col(1);
+        Eigen::VectorXd passCountReal =
+            passCountFaces.cast<Real>();
+
+        mappingWriter.addScalarFieldToVertices(
+            materialU, "material_u");
+        mappingWriter.addScalarFieldToVertices(
+            materialV, "material_v");
+        mappingWriter.addVectorFieldToFaces(
+            growthDirections3D, "growth_dir_3d");
+        mappingWriter.addScalarFieldToFaces(
+            growthAngles, "growth_angle_material");
+        mappingWriter.addScalarFieldToFaces(
+            passCountReal, "pass_count");
+        mappingWriter.addScalarFieldToFaces(
+            growthRates_1_b, "rate1_bot");
+        mappingWriter.addScalarFieldToFaces(
+            growthRates_2_b, "rate2_bot");
+        mappingWriter.addScalarFieldToFaces(
+            growthRates_1_t, "rate1_top");
+        mappingWriter.addScalarFieldToFaces(
+            growthRates_2_t, "rate2_top");
+
+        Real maxNormalDot = 0.0;
+        for(int i = 0; i < nFaces; ++i)
+        {
+            const Eigen::Vector3d x0 =
+                Xrest.row(Connect(i,0)).transpose();
+            const Eigen::Vector3d x1 =
+                Xrest.row(Connect(i,1)).transpose();
+            const Eigen::Vector3d x2 =
+                Xrest.row(Connect(i,2)).transpose();
+
+            const Eigen::Vector3d normal =
+                (x1 - x0).cross(x2 - x0).normalized();
+            const Eigen::Vector3d direction =
+                growthDirections3D.row(i).transpose();
+
+            maxNormalDot = std::max(
+                maxNormalDot,
+                std::abs(normal.dot(direction)));
+        }
+
+        std::cout
+            << "[curved_mapping] max |n dot d1| = "
+            << maxNormalDot << "\n";
+
+        mappingWriter.write(tag + "_curved_mapping");
+    }
 
     // write initial condition
     mesh.writeToFile(tag+"_init");
@@ -1032,8 +1293,9 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
 
         const Real swelling_fac = (s+1)*swelling_step;
 
-        GrowthHelper<tMesh>::computeAbarsOrthoGrowth(mesh, growthAngles, growthRates_1_b, growthRates_2_b, mesh.getRestConfiguration().getFirstFundamentalForms<bottom>());
-        GrowthHelper<tMesh>::computeAbarsOrthoGrowth(mesh, growthAngles, growthRates_1_t, growthRates_2_t, mesh.getRestConfiguration().getFirstFundamentalForms<top>());
+        // Updates @07/17: use the same flat or curved metric-update path
+        // selected above. For this first curved test, run with -nsteps 1.
+        updateRestMetrics();
 
         // minimize energy, old version
         // Real eps = 1e-2;
@@ -1514,6 +1776,42 @@ void Sim_Bilayer_Growth::initForwardProblem()
         const Real clamped = parser.parse<Real>("-clamped", true);
         mesh.init(geometry, clamped);
     }
+    else if (geometryCase == "curved_rectangle")
+    // Updates @07/17:
+    // Analytical cylindrical panel with the same regular topology as the
+    // existing right-angle rectangular plate. Curvature is across material y.
+    {
+      const Real res =
+          parser.parse<Real>("-res", 0.01);
+      const Real Lx =
+          parser.parse<Real>("-lx", 0.5);
+      const Real Ly =
+          parser.parse<Real>("-ly", 0.5);
+      const Real curve_radius =
+          parser.parse<Real>("-curve_radius", 0.25);
+      const Real curve_sign =
+          parser.parse<Real>("-curve_sign", 1.0);
+
+      const Real relArea = 2.0 * Lx * res;
+
+      CurvedRectangularPlate_RightAngle geometry(
+          Lx,
+          Ly,
+          relArea,
+          curve_radius,
+          curve_sign);
+
+      mesh.init(geometry);
+
+      std::cout
+          << "[curved_rectangle] Lx=" << Lx
+          << ", Ly=" << Ly
+          << ", R=" << curve_radius
+          << ", sign=" << ((curve_sign >= 0.0) ? 1.0 : -1.0)
+          << ", total opening angle="
+          << 2.0 * Ly / curve_radius
+          << " rad\n";
+    }
     else if (geometryCase == "rectangle")
     // regular mesh
     {
@@ -1566,6 +1864,7 @@ void Sim_Bilayer_Growth::initForwardProblem()
         std::cout << "No valid geometry defined. Options are \n";
         std::cout << "\t -geometry external\n";
         std::cout << "\t -geometry external_rectangle_clamped\n";
+        std::cout << "\t -geometry curved_rectangle\n"; // Updates @07/17
         std::cout << "\t -geometry rectangle\n";
         std::cout << "\t -geometry rectangle_allclamped\n";
         std::cout << "\t -geometry rectangle_3clampvert\n";

@@ -456,6 +456,11 @@ mkdir -p run/PSM_test/
 cp bin/shell run/PSM_test/
 cd run/PSM_test
 
+cd ~/workspace/src/PSM2025
+mkdir -p run/json_zigzag_2/
+cp bin/shell run/json_zigzag_2/
+cd run/json_zigzag_2
+
 time ./shell \
   -sim bilayer_growth \
   -case custom \
@@ -469,4 +474,70 @@ time ./shell \
   -nsteps 1 \
   -tol 3e-12
 
+time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -growth_type multi_zigzag \
+  -patch_file patches_multi_zigzag_example.json \
+  -lx 0.03 \
+  -ly 0.03 \
+  -res 0.01 \
+  -h_total 0.0005 \
+  -nsteps 1 \
+  -tol 3e-12
+
+
   cp bin/shell run/json_zigzag/
+
+
+# Time to try some non-flat sheet initial: Starting with an analytical shape (cylinder)
+time ./shell \
+  -sim bilayer_growth \
+  -case custom \
+  -geometry rectangle \
+  -lx 0.152 -ly 0.025 \
+  -patch_lx 0.120 -patch_ly 0.010 -patch_x_from_left 0.120 -patch_yc 0.0 \
+  -res 0.01 \
+  -h_total 0.0005 \
+  -growth_type patch \
+  -growth_top  0.003 \
+  -growth_bot 0.000 \
+  -growth_angle 0.0 \
+  -ortho_coeff 0.0 \
+  -nsteps 1 \
+  -export_stl true \
+  -tol 3e-12
+
+time ./shell \
+-sim bilayer_growth \
+-case custom \
+-geometry curved_rectangle \
+-lx 0.13 -ly 0.16 \
+-res 0.01 \
+-curve_radius 0.50 \
+-curve_sign -1 \
+-h_total 0.0005 \
+-growth_type zigzag \
+-zigzag_lv_mm 140 \
+-zigzag_alpha_deg 9.13 \
+-zigzag_N 10 \
+-zigzag_w_mm 10 \
+-zigzag_offset_dx_mm 0 \
+-zigzag_offset_dy_mm 30 \
+-zigzag_gtop_list 0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003 \
+-zigzag_gbot_list 0,0,0,0,0,0,0,0,0,0 \
+-zigzag_ortho_list 0,0,0,0,0,0,0,0,0,0 \
+-zigzag_profile_mode center_peak \
+-zigzag_top_end_ratio 0.4 \
+-zigzag_top_profile_power 2.0 \
+-enable_passE false \
+-nsteps 1 \
+-export_stl true \
+-tol 3e-12
+
+# mkdir for run folders
+cd ~/workspace/src/PSM2025
+mkdir -p run/curved_test4/
+cp bin/shell run/curved_test4/
+cd run/curved_test4

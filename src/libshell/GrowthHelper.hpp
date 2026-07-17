@@ -14,6 +14,7 @@
 
 #include <Eigen/Eigenvalues>
 #include <unsupported/Eigen/MatrixFunctions>
+#include <stdexcept> // Updates @07/17: mapped curved-shell direction validation
 
 
 class DecomposedGrowthState
@@ -489,6 +490,99 @@ struct GrowthHelper
     }
 
     
+    
+    // Updates @07/15:
+    // Push a material-space principal angle theta(u,v) onto the tangent plane
+    // of each face of the curved rest geometry.
+    //
+    // For each face:
+    //   Dm = [U1-U0, U2-U0]      (2x2 material edge matrix)
+    //   Ds = [X1-X0, X2-X0]      (3x2 spatial edge matrix)
+    //   J  = Ds * Dm^{-1}        (piecewise-affine surface Jacobian)
+    //   d1 = normalize(J*[cos(theta), sin(theta)]^T)
+    //
+    // The returned directions are nFaces x 3 and can be passed directly to
+    // computeAbarsOrthoGrowthShell(...).
+    static void mapMaterialAnglesToShellDirections(
+        const tMesh & mesh,
+        const Eigen::Ref<const Eigen::MatrixXd> materialCoordinates,
+        const Eigen::Ref<const Eigen::VectorXd> materialAngles,
+        Eigen::MatrixXd & growthdirs_1)
+    {
+        const int nFaces = mesh.getNumberOfFaces();
+        const int nVertices = mesh.getNumberOfVertices();
+
+        if(materialCoordinates.rows() != nVertices ||
+           materialCoordinates.cols() < 2)
+            throw std::runtime_error(
+                "GrowthHelper::mapMaterialAnglesToShellDirections: "
+                "materialCoordinates must be nVertices x 2 (or more).");
+
+        if(materialAngles.size() != nFaces)
+            throw std::runtime_error(
+                "GrowthHelper::mapMaterialAnglesToShellDirections: "
+                "materialAngles size mismatch.");
+
+        const auto & topology = mesh.getTopology();
+        const Eigen::MatrixXi face2vertices =
+            topology.getFace2Vertices();
+        const auto X =
+            mesh.getRestConfiguration().getVertices();
+
+        growthdirs_1.resize(nFaces, 3);
+
+        for(int i = 0; i < nFaces; ++i)
+        {
+            const int i0 = face2vertices(i,0);
+            const int i1 = face2vertices(i,1);
+            const int i2 = face2vertices(i,2);
+
+            Eigen::Matrix2d Dm;
+            Dm.col(0) =
+                materialCoordinates.row(i1).head<2>().transpose() -
+                materialCoordinates.row(i0).head<2>().transpose();
+            Dm.col(1) =
+                materialCoordinates.row(i2).head<2>().transpose() -
+                materialCoordinates.row(i0).head<2>().transpose();
+
+            const Real scale =
+                Dm.col(0).norm() * Dm.col(1).norm();
+            const Real detDm = Dm.determinant();
+            if(scale <= std::numeric_limits<Real>::epsilon() ||
+               std::abs(detDm) <= 1e-12 * scale)
+                throw std::runtime_error(
+                    "GrowthHelper::mapMaterialAnglesToShellDirections: "
+                    "singular/degenerate material triangle.");
+
+            Eigen::Matrix<Real,3,2> Ds;
+            Ds.col(0) =
+                X.row(i1).transpose() - X.row(i0).transpose();
+            Ds.col(1) =
+                X.row(i2).transpose() - X.row(i0).transpose();
+
+            const Real theta = materialAngles(i);
+            const Eigen::Vector2d p(
+                std::cos(theta), std::sin(theta));
+
+            const Eigen::Matrix<Real,3,2> J =
+                Ds * Dm.inverse();
+            Eigen::Vector3d d1 = J * p;
+
+            const Eigen::Vector3d normal =
+                Ds.col(0).cross(Ds.col(1)).normalized();
+
+            // Remove any numerical normal component before normalization.
+            d1 -= d1.dot(normal) * normal;
+            const Real d1Norm = d1.norm();
+            if(d1Norm <= std::numeric_limits<Real>::epsilon())
+                throw std::runtime_error(
+                    "GrowthHelper::mapMaterialAnglesToShellDirections: "
+                    "mapped tangent direction has near-zero length.");
+    
+            d1 /= d1Norm;
+            growthdirs_1.row(i) = d1.transpose();
+        }
+    }
     
     static void computeAbarsOrthoGrowthShell(const tMesh & mesh, const Eigen::Ref<const Eigen::MatrixXd> growthdirs_1, const Eigen::Ref<const Eigen::VectorXd> growthRates_1, const Eigen::Ref<const Eigen::VectorXd> growthRates_2, tVecMat2d & aforms)
     {

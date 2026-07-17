@@ -477,5 +477,157 @@ inline void apply(const MeshType& mesh,
     }
 }
 
+// Updates @07/17:
+// Apply the zigzag in a persistent flat/material coordinate domain (u,v)
+// instead of using the current spatial x-y projection. This is the key
+// toolpath-selection function for analytically curved panels.
+//
+// materialCoordinates: nVertices x 2 (or x >=2); columns are u and v.
+// face2vertices:       nFaces x 3; same topology/indexing as the curved mesh.
+//
+// The rigid pattern rotation is included in the returned material-space
+// principal direction:
+//     theta_material = theta_segment + rotation_deg.
+//
+// The original mesh-based apply(...) above is intentionally left unchanged so
+// existing flat-panel results remain reproducible.
+inline void applyMaterialCoordinates(
+                  const Eigen::Ref<const Eigen::MatrixXd> materialCoordinates,
+                  const Eigen::Ref<const Eigen::MatrixXi> face2vertices,
+                  const Params& zz,
+                  const std::vector<double>& gtop_list,
+                  const std::vector<double>& gbot_list,
+                  const std::vector<double>& ortho_list,
+                  Eigen::VectorXd& growthRates_t,
+                  Eigen::VectorXd& growthRates_b,
+                  Eigen::VectorXd& growthAngles,
+                  Eigen::VectorXd& orthoCoeffFaces,
+                  Eigen::VectorXi* passCountFaces = nullptr)
+{
+    if(materialCoordinates.cols() < 2)
+        throw std::runtime_error(
+            "zigzag::applyMaterialCoordinates: materialCoordinates must have at least 2 columns.");
+
+    const int nFaces = face2vertices.rows();
+    if (growthRates_t.size() != nFaces || growthRates_b.size() != nFaces)
+        throw std::runtime_error(
+            "zigzag::applyMaterialCoordinates: growthRates size mismatch.");
+    if (growthAngles.size() != nFaces || orthoCoeffFaces.size() != nFaces)
+        throw std::runtime_error(
+            "zigzag::applyMaterialCoordinates: growthAngles/orthoCoeffFaces size mismatch.");
+    if ((int)gtop_list.size() != zz.N_total ||
+        (int)gbot_list.size() != zz.N_total ||
+        (int)ortho_list.size() != zz.N_total)
+        throw std::runtime_error(
+            "zigzag::applyMaterialCoordinates: parameter lists must have size N_total.");
+    if (passCountFaces && passCountFaces->size() != nFaces)
+        throw std::runtime_error(
+            "zigzag::applyMaterialCoordinates: passCountFaces size mismatch.");
+
+    if(face2vertices.size() > 0)
+    {
+        const int maxVertexIndex = face2vertices.maxCoeff();
+        if(maxVertexIndex >= materialCoordinates.rows())
+            throw std::runtime_error(
+                "zigzag::applyMaterialCoordinates: face index exceeds material-coordinate array.");
+    }
+
+    const auto strips =
+        buildZigZagStrips(zz, gtop_list, gbot_list, ortho_list);
+    const double half_w = 0.5 * (zz.w_mm * 1e-3);
+
+    const double dx = zz.offset_dx_mm * 1e-3;
+    const double dy = zz.offset_dy_mm * 1e-3;
+
+    const double rot_rad = deg2rad(zz.rotation_deg);
+    const Eigen::Matrix2d Rinv = rot2d(-rot_rad);
+
+    if (zz.zero_outside)
+    {
+        growthRates_t.setZero();
+        growthRates_b.setZero();
+        orthoCoeffFaces.setZero();
+    }
+
+    if(passCountFaces)
+        passCountFaces->setZero();
+
+    const double umin = materialCoordinates.col(0).minCoeff();
+    const double umax = materialCoordinates.col(0).maxCoeff();
+    const double vmin = materialCoordinates.col(1).minCoeff();
+    const double vmax = materialCoordinates.col(1).maxCoeff();
+
+    const Eigen::Vector2d center(
+        0.5 * (umin + umax),
+        0.5 * (vmin + vmax));
+
+    const double panel_lu = umax - umin;
+    const double panel_lv = vmax - vmin;
+
+    checkTransformedFootprintInsidePanel(
+        strips, half_w, panel_lu, panel_lv, dx, dy, rot_rad);
+
+    for (int k = 0; k < (int)strips.size(); ++k)
+    {
+        const auto& s = strips[k];
+
+        for (int i = 0; i < nFaces; ++i)
+        {
+            const int i0 = face2vertices(i,0);
+            const int i1 = face2vertices(i,1);
+            const int i2 = face2vertices(i,2);
+
+            const Eigen::Vector2d c(
+                (materialCoordinates(i0,0) +
+                 materialCoordinates(i1,0) +
+                 materialCoordinates(i2,0)) / 3.0,
+                (materialCoordinates(i0,1) +
+                 materialCoordinates(i1,1) +
+                 materialCoordinates(i2,1)) / 3.0);
+
+            // Transform the material-space face centroid into the local
+            // unrotated/untranslated zigzag frame.
+            const Eigen::Vector2d cc = c - center;
+            const Eigen::Vector2d q =
+                cc - Eigen::Vector2d(dx, dy);
+            const Eigen::Vector2d p = Rinv * q;
+
+            const double d =
+                dist_point_segment_2d(p, s.a, s.b);
+
+            if (d <= half_w)
+            {
+                if (passCountFaces)
+                    (*passCountFaces)(i) += 1;
+
+                double gtop_local = s.gtop;
+                if (zz.top_profile_mode == TopProfileMode::CenterPeak)
+                {
+                    const double s01 =
+                        path_coord_01_on_segment_2d(p, s.a, s.b);
+                    const double profile =
+                        center_peak_profile_01(
+                            s01,
+                            zz.top_end_ratio,
+                            zz.top_profile_power);
+                    gtop_local *= profile;
+                }
+
+                growthRates_t(i) = gtop_local;
+                growthRates_b(i) = s.gbot;
+
+                // Unlike the legacy flat function, include the rigid rotation
+                // because the physical eigenstrain direction follows the
+                // rotated toolpath in the material domain.
+                growthAngles(i) =
+                    normalize_angle_pi(s.angle_rad + rot_rad);
+
+                orthoCoeffFaces(i) = s.ortho;
+            }
+        }
+    }
+}
+
+
 } // namespace zigzag
 

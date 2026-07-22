@@ -32,7 +32,13 @@
 #include "MultiParallelLinesGrowth.hpp"
 #include "MultiZigZagGrowth.hpp"
 
+// Updates @07/19: JSON-defined recurring toolpath sequence.
+#include "ZigZagSequenceGrowth.hpp"
+
 #include <stdexcept>
+#include <fstream>   // Updates @07/19: sequence summary CSV
+#include <iomanip>   // Updates @07/19: stable CSV precision
+#include <limits>    // Updates @07/19: summary extrema
 
 static std::vector<int> parse_int_list(const std::string& s)
 {
@@ -83,6 +89,8 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     // - circle (circular zone in the center of the plate)
     // - external (projection of a pattern coming from another mesh)
     // - zigzag (zigzag pattern) New function added ver-0203
+    // - zigzag_cycles (Updates @07/19: recurring, pass-count hardened zigzag)
+    // - zigzag_sequence (Updates @07/19: JSON-defined toolpath recipes; each repeat is a new released cycle)
     // - rect_spiral
     // - multi_zigzag (JSON-defined rectangular patches with patch-centered zigzag paths)
 
@@ -233,6 +241,1395 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
 
     // Debug
     std::cout << "[growth] growth_type = '" << growth_type << "'\n";
+
+    // Updates @07/19:
+    // History-preserving recurring zigzag. The same material-space toolpath is
+    // replayed for -cycle_rounds cycles. Every strip/face intersection is kept
+    // as an individual hit (no last-wins overwrite), the target metrics are
+    // updated sequentially, and the previous released geometry remains in
+    // currentState as the starting geometry for the next cycle. The shared
+    // target curvature b_r is never modified.
+    if(growth_type == "zigzag_cycles")
+    {
+        if(enable_passE)
+            throw std::runtime_error(
+                "zigzag_cycles uses pass-count eigenstrain hardening; "
+                "-enable_passE must be false.");
+
+        const int nsteps_cycles = parser.parse<int>("-nsteps", 1);
+        if(nsteps_cycles != 1)
+            throw std::runtime_error(
+                "zigzag_cycles owns the recurring loop; use -nsteps 1.");
+
+        const int cycle_rounds =
+            parser.parse<int>("-cycle_rounds", 1);
+        if(cycle_rounds < 1)
+            throw std::runtime_error(
+                "zigzag_cycles: -cycle_rounds must be >= 1.");
+
+        const std::string hardening_model =
+            parser.parse<std::string>(
+                "-cycle_hardening_model", "voce_decay");
+        const Real hardening_beta =
+            parser.parse<Real>("-cycle_hardening_beta", 0.0);
+        const Real hardening_floor =
+            parser.parse<Real>("-cycle_hardening_floor", 0.0);
+
+        if(hardening_model != "none" &&
+           hardening_model != "voce_decay")
+            throw std::runtime_error(
+                "zigzag_cycles: -cycle_hardening_model must be "
+                "'none' or 'voce_decay'.");
+        if(hardening_beta < 0.0)
+            throw std::runtime_error(
+                "zigzag_cycles: -cycle_hardening_beta must be >= 0.");
+        if(hardening_floor < 0.0 || hardening_floor > 1.0)
+            throw std::runtime_error(
+                "zigzag_cycles: -cycle_hardening_floor must be in [0,1].");
+
+        auto hardeningFactor =
+            [&](const int previous_hits) -> Real
+            {
+                if(hardening_model == "none")
+                    return 1.0;
+
+                return hardening_floor +
+                    (1.0 - hardening_floor) *
+                    std::exp(-hardening_beta *
+                             static_cast<Real>(previous_hits));
+            };
+
+        // Parse exactly the same zigzag inputs as the existing zigzag case.
+        const Real Lv_mm =
+            parser.parse<Real>("-zigzag_lv_mm", 40.0);
+        const Real alpha_deg =
+            parser.parse<Real>("-zigzag_alpha_deg", 15.0);
+        const int N_total =
+            parser.parse<int>("-zigzag_N", 6);
+        const Real w_mm =
+            parser.parse<Real>("-zigzag_w_mm", 2.0);
+        const Real offset_dx_mm =
+            parser.parse<Real>("-zigzag_offset_dx_mm", 0.0);
+        const Real offset_dy_mm =
+            parser.parse<Real>("-zigzag_offset_dy_mm", 0.0);
+        const Real rotation_deg =
+            parser.parse<Real>("-zigzag_rotation_deg", 0.0);
+
+        const std::string gtop_s =
+            parser.parse<std::string>("-zigzag_gtop_list", "");
+        const std::string gbot_s =
+            parser.parse<std::string>("-zigzag_gbot_list", "");
+        const std::string ortho_s =
+            parser.parse<std::string>("-zigzag_ortho_list", "");
+
+        const std::string profile_mode_str =
+            parser.parse<std::string>(
+                "-zigzag_profile_mode", "uniform");
+        const Real top_end_ratio =
+            parser.parse<Real>("-zigzag_top_end_ratio", 1.0);
+        const Real top_profile_power =
+            parser.parse<Real>("-zigzag_top_profile_power", 1.0);
+
+        std::vector<double> gtop_list(N_total, growthRate_t);
+        std::vector<double> gbot_list(N_total, growthRate_b);
+        std::vector<double> ortho_list(N_total, ortho_coeff);
+
+        if(!gtop_s.empty())
+            gtop_list = zigzag::parseCommaListReal(
+                gtop_s, N_total, growthRate_t);
+        if(!gbot_s.empty())
+            gbot_list = zigzag::parseCommaListReal(
+                gbot_s, N_total, growthRate_b);
+        if(!ortho_s.empty())
+            ortho_list = zigzag::parseCommaListReal(
+                ortho_s, N_total, ortho_coeff);
+
+        zigzag::Params zz;
+        zz.Lv_mm = Lv_mm;
+        zz.alpha_deg = alpha_deg;
+        zz.N_total = N_total;
+        zz.w_mm = w_mm;
+        zz.offset_dx_mm = offset_dx_mm;
+        zz.offset_dy_mm = offset_dy_mm;
+        zz.rotation_deg = rotation_deg;
+        zz.last_wins = false; // events are accumulated explicitly below
+        zz.start_mode = zigzag::StartMode::LeftBottom_Up;
+        zz.zero_outside = true;
+        zz.top_profile_mode =
+            zigzag::parseTopProfileMode(profile_mode_str);
+        zz.top_end_ratio = top_end_ratio;
+        zz.top_profile_power = top_profile_power;
+
+        // Build the immutable one-cycle event sequence in material coordinates.
+        std::vector<zigzag::MaterialHit> materialHits;
+        Eigen::VectorXi hitsPerCycle(nFaces);
+        hitsPerCycle.setZero();
+        zigzag::collectMaterialCoordinateHits(
+            materialCoordinates,
+            Connect,
+            zz,
+            gtop_list,
+            gbot_list,
+            ortho_list,
+            materialHits,
+            &hitsPerCycle);
+
+        // Preserve the existing margin convention: a face is removed only if
+        // all three of its vertices belong to the material-coordinate margin.
+        Eigen::VectorXi faceEnabled = Eigen::VectorXi::Ones(nFaces);
+        if(margin_x > 0.0 || margin_y > 0.0)
+        {
+            const Real uMin = materialCoordinates.col(0).minCoeff();
+            const Real uMax = materialCoordinates.col(0).maxCoeff();
+            const Real vMin = materialCoordinates.col(1).minCoeff();
+            const Real vMax = materialCoordinates.col(1).maxCoeff();
+
+            Eigen::VectorXi marginVertex(nVert);
+            marginVertex.setZero();
+            for(int i = 0; i < nVert; ++i)
+            {
+                const Real u = materialCoordinates(i,0);
+                const Real v = materialCoordinates(i,1);
+                if(u <= uMin + margin_x ||
+                   u >= uMax - margin_x ||
+                   v <= vMin + margin_y ||
+                   v >= vMax - margin_y)
+                    marginVertex(i) = 1;
+            }
+
+            for(int i = 0; i < nFaces; ++i)
+            {
+                if(marginVertex(Connect(i,0)) == 1 &&
+                   marginVertex(Connect(i,1)) == 1 &&
+                   marginVertex(Connect(i,2)) == 1)
+                    faceEnabled(i) = 0;
+            }
+
+            materialHits.erase(
+                std::remove_if(
+                    materialHits.begin(),
+                    materialHits.end(),
+                    [&](const zigzag::MaterialHit& hit)
+                    {
+                        return faceEnabled(hit.face_idx) == 0;
+                    }),
+                materialHits.end());
+
+            hitsPerCycle.setZero();
+            for(const auto& hit : materialHits)
+                hitsPerCycle(hit.face_idx) += 1;
+        }
+
+        if(materialHits.empty())
+            throw std::runtime_error(
+                "zigzag_cycles: no faces are covered after applying "
+                "the toolpath and margins.");
+
+        // Store event indices per face. This supports exact VTK diagnostics for
+        // every overlapping hit without reducing them to one last-win angle.
+        std::vector<std::vector<int>> hitsByFace(nFaces);
+        for(int h = 0; h < (int)materialHits.size(); ++h)
+            hitsByFace[materialHits[h].face_idx].push_back(h);
+
+        int maxHitsPerFace = 0;
+        for(const auto& faceHits : hitsByFace)
+            maxHitsPerFace = std::max(
+                maxHitsPerFace,
+                static_cast<int>(faceHits.size()));
+
+        std::cout
+            << "[zigzag_cycles] cycles=" << cycle_rounds
+            << ", events_per_cycle=" << materialHits.size()
+            << ", covered_faces=" << (hitsPerCycle.array() > 0).count()
+            << ", max_hits_per_face_per_cycle=" << maxHitsPerFace
+            << "\n";
+        std::cout
+            << "[zigzag_cycles] hardening_model=" << hardening_model
+            << ", beta=" << hardening_beta
+            << ", floor=" << hardening_floor
+            << "\n";
+
+        // The initialized rest forms are the cycle-zero natural state.
+        // Top/bottom a_r evolve in place; the shared b_r is retained exactly.
+        tVecMat2d& aformsBot =
+            mesh.getRestConfiguration()
+                .getFirstFundamentalForms<bottom>();
+        tVecMat2d& aformsTop =
+            mesh.getRestConfiguration()
+                .getFirstFundamentalForms<top>();
+        const tVecMat2d initialBforms =
+            mesh.getRestConfiguration().getSecondFundamentalForms();
+
+        Eigen::VectorXi totalPassCount(nFaces);
+        totalPassCount.setZero();
+
+        MaterialProperties_Iso_Constant matprop_bot(
+            E, nu, h_total);
+        MaterialProperties_Iso_Constant matprop_top(
+            E, nu, h_total);
+        CombinedOperator_Parametric<
+            tMesh, Material_Isotropic, bottom>
+            engOp_bot(matprop_bot);
+        CombinedOperator_Parametric<
+            tMesh, Material_Isotropic, top>
+            engOp_top(matprop_top);
+        EnergyOperatorList<tMesh> engOps(
+            {&engOp_bot, &engOp_top});
+
+        const std::string dump_iters_str =
+            parser.parse<std::string>("-dump_iters", "");
+        const std::vector<int> dump_iters =
+            parse_int_list(dump_iters_str);
+        const int max_iter =
+            parser.parse<int>("-max_iter", -1);
+        // Updates @07/19: Keep the default optimizer step immutable, but
+        // create a writable copy for each cycle because minimizeEnergy()
+        // accepts Real& and may update the step size internally.
+        const Real eps_init_default = 1e-2;
+        const Real tol =
+            parser.parse<Real>("-tol", 1e-6);
+        const bool stepwise =
+            parser.parse<bool>("-stepwise", false);
+        const bool write_cycle_state =
+            parser.parse<bool>("-cycle_write_state", false);
+
+        // Write the current-surface toolpath before each cycle. A separate
+        // vector/mask pair is emitted for every hit rank on a face, so overlap
+        // is visible without using a last-win diagnostic.
+        auto writeCycleMapping =
+            [&](const int cycle)
+            {
+                const Eigen::MatrixXd Xcurrent =
+                    mesh.getCurrentConfiguration().getVertices();
+                WriteVTK writer(Xcurrent, Connect);
+
+                Eigen::VectorXd materialU = materialCoordinates.col(0);
+                Eigen::VectorXd materialV = materialCoordinates.col(1);
+                Eigen::VectorXd hitsPerCycleReal =
+                    hitsPerCycle.cast<Real>();
+                Eigen::VectorXd totalBeforeReal =
+                    totalPassCount.cast<Real>();
+                Eigen::VectorXd qBefore(nFaces);
+                Eigen::VectorXd cycleField =
+                    Eigen::VectorXd::Constant(
+                        nFaces, static_cast<Real>(cycle));
+
+                qBefore.setZero();
+                for(int i = 0; i < nFaces; ++i)
+                    if(hitsPerCycle(i) > 0)
+                        qBefore(i) = hardeningFactor(
+                            totalPassCount(i));
+
+                writer.addScalarFieldToVertices(
+                    materialU, "material_u");
+                writer.addScalarFieldToVertices(
+                    materialV, "material_v");
+                writer.addScalarFieldToFaces(
+                    cycleField, "cycle_index");
+                writer.addScalarFieldToFaces(
+                    hitsPerCycleReal, "hits_per_cycle");
+                writer.addScalarFieldToFaces(
+                    totalBeforeReal, "total_hits_before_cycle");
+                writer.addScalarFieldToFaces(
+                    qBefore, "hardening_factor_before_first_hit");
+
+                Real maxTangencyError = 0.0;
+                for(int rank = 0; rank < maxHitsPerFace; ++rank)
+                {
+                    Eigen::VectorXd angles =
+                        Eigen::VectorXd::Zero(nFaces);
+                    Eigen::VectorXd active =
+                        Eigen::VectorXd::Zero(nFaces);
+                    Eigen::VectorXd stripIndex =
+                        Eigen::VectorXd::Constant(nFaces, -1.0);
+                    Eigen::VectorXd baseGtop =
+                        Eigen::VectorXd::Zero(nFaces);
+                    Eigen::VectorXd baseGbot =
+                        Eigen::VectorXd::Zero(nFaces);
+                    Eigen::VectorXd baseOrtho =
+                        Eigen::VectorXd::Zero(nFaces);
+
+                    for(int i = 0; i < nFaces; ++i)
+                    {
+                        if(rank >= (int)hitsByFace[i].size())
+                            continue;
+
+                        const auto& hit =
+                            materialHits[hitsByFace[i][rank]];
+                        angles(i) = hit.angle_rad;
+                        active(i) = 1.0;
+                        stripIndex(i) =
+                            static_cast<Real>(hit.strip_idx);
+                        baseGtop(i) = hit.gtop;
+                        baseGbot(i) = hit.gbot;
+                        baseOrtho(i) = hit.ortho;
+                    }
+
+                    Eigen::MatrixXd directions;
+                    GrowthHelper<tMesh>::
+                        mapMaterialAnglesToCurrentShellDirections(
+                            mesh,
+                            materialCoordinates,
+                            angles,
+                            directions);
+
+                    for(int i = 0; i < nFaces; ++i)
+                    {
+                        if(active(i) == 0.0)
+                        {
+                            directions.row(i).setZero();
+                            continue;
+                        }
+
+                        const Eigen::Vector3d x0 =
+                            Xcurrent.row(Connect(i,0)).transpose();
+                        const Eigen::Vector3d x1 =
+                            Xcurrent.row(Connect(i,1)).transpose();
+                        const Eigen::Vector3d x2 =
+                            Xcurrent.row(Connect(i,2)).transpose();
+                        const Eigen::Vector3d normal =
+                            (x1-x0).cross(x2-x0).normalized();
+                        maxTangencyError = std::max(
+                            maxTangencyError,
+                            std::abs(normal.dot(
+                                directions.row(i).transpose())));
+                    }
+
+                    const std::string suffix =
+                        helpers::ToString(rank + 1, 2);
+                    writer.addVectorFieldToFaces(
+                        directions,
+                        "growth_dir_3d_hit_" + suffix);
+                    writer.addScalarFieldToFaces(
+                        active,
+                        "hit_active_" + suffix);
+                    writer.addScalarFieldToFaces(
+                        angles,
+                        "growth_angle_material_hit_" + suffix);
+                    writer.addScalarFieldToFaces(
+                        stripIndex,
+                        "strip_index_hit_" + suffix);
+                    writer.addScalarFieldToFaces(
+                        baseGtop,
+                        "base_gtop_hit_" + suffix);
+                    writer.addScalarFieldToFaces(
+                        baseGbot,
+                        "base_gbot_hit_" + suffix);
+                    writer.addScalarFieldToFaces(
+                        baseOrtho,
+                        "base_ortho_hit_" + suffix);
+                }
+
+                std::cout
+                    << "[zigzag_cycles] cycle " << cycle
+                    << " mapping max |n dot d|="
+                    << maxTangencyError << "\n";
+
+                writer.write(
+                    tag + "_cycle_" +
+                    helpers::ToString(cycle, 3) +
+                    "_mapping");
+            };
+
+        // Exact state output: target metric components are written directly,
+        // avoiding an inaccurate reduction of overlapping directional history
+        // to one equivalent growth angle.
+        auto writeCycleState =
+            [&](const int cycle,
+                const std::string& phase,
+                const Eigen::VectorXd& incG1Top,
+                const Eigen::VectorXd& incG2Top,
+                const Eigen::VectorXd& incG1Bot,
+                const Eigen::VectorXd& incG2Bot,
+                const Eigen::VectorXd& qFirst,
+                const Eigen::VectorXd& qLast)
+            {
+                const Eigen::MatrixXd X0 =
+                    mesh.getRestConfiguration().getVertices();
+                const Eigen::MatrixXd X =
+                    mesh.getCurrentConfiguration().getVertices();
+                WriteVTK writer(X, Connect);
+
+                const Eigen::MatrixXd U = X - X0;
+                const Eigen::VectorXd U3 = U.col(2);
+                const Eigen::VectorXd Umag = U.rowwise().norm();
+                const Eigen::VectorXd materialU =
+                    materialCoordinates.col(0);
+                const Eigen::VectorXd materialV =
+                    materialCoordinates.col(1);
+                const Eigen::VectorXd hitCountReal =
+                    totalPassCount.cast<Real>();
+                const Eigen::VectorXd hitsPerCycleReal =
+                    hitsPerCycle.cast<Real>();
+                const Eigen::VectorXd cycleField =
+                    Eigen::VectorXd::Constant(
+                        nFaces, static_cast<Real>(cycle));
+                Eigen::VectorXd qNext(nFaces);
+                qNext.setZero();
+
+                Eigen::VectorXd aTop11(nFaces), aTop12(nFaces), aTop22(nFaces);
+                Eigen::VectorXd aBot11(nFaces), aBot12(nFaces), aBot22(nFaces);
+                Eigen::VectorXd bRef11(nFaces), bRef12(nFaces), bRef22(nFaces);
+                Eigen::VectorXd bRefDrift(nFaces);
+
+                const tVecMat2d& currentBforms =
+                    mesh.getRestConfiguration()
+                        .getSecondFundamentalForms();
+
+                for(int i = 0; i < nFaces; ++i)
+                {
+                    if(hitsPerCycle(i) > 0)
+                        qNext(i) = hardeningFactor(
+                            totalPassCount(i));
+
+                    aTop11(i) = aformsTop[i](0,0);
+                    aTop12(i) = aformsTop[i](0,1);
+                    aTop22(i) = aformsTop[i](1,1);
+                    aBot11(i) = aformsBot[i](0,0);
+                    aBot12(i) = aformsBot[i](0,1);
+                    aBot22(i) = aformsBot[i](1,1);
+                    bRef11(i) = currentBforms[i](0,0);
+                    bRef12(i) = currentBforms[i](0,1);
+                    bRef22(i) = currentBforms[i](1,1);
+                    bRefDrift(i) =
+                        (currentBforms[i] - initialBforms[i]).norm();
+                }
+
+                writer.addVectorFieldToVertices(U, "U_from_cycle0");
+                writer.addScalarFieldToVertices(U3, "U3_from_cycle0");
+                writer.addScalarFieldToVertices(Umag, "Umag_from_cycle0");
+                writer.addScalarFieldToVertices(materialU, "material_u");
+                writer.addScalarFieldToVertices(materialV, "material_v");
+
+                writer.addScalarFieldToFaces(cycleField, "cycle_index");
+                writer.addScalarFieldToFaces(
+                    hitsPerCycleReal, "hits_per_cycle");
+                writer.addScalarFieldToFaces(
+                    hitCountReal, "total_hit_count");
+                writer.addScalarFieldToFaces(
+                    qFirst, "hardening_factor_first_hit");
+                writer.addScalarFieldToFaces(
+                    qLast, "hardening_factor_last_hit");
+                writer.addScalarFieldToFaces(
+                    qNext, "hardening_factor_next_hit");
+
+                writer.addScalarFieldToFaces(
+                    incG1Top, "effective_increment_g1_top_sum");
+                writer.addScalarFieldToFaces(
+                    incG2Top, "effective_increment_g2_top_sum");
+                writer.addScalarFieldToFaces(
+                    incG1Bot, "effective_increment_g1_bot_sum");
+                writer.addScalarFieldToFaces(
+                    incG2Bot, "effective_increment_g2_bot_sum");
+
+                writer.addScalarFieldToFaces(aTop11, "abar_top_11");
+                writer.addScalarFieldToFaces(aTop12, "abar_top_12");
+                writer.addScalarFieldToFaces(aTop22, "abar_top_22");
+                writer.addScalarFieldToFaces(aBot11, "abar_bot_11");
+                writer.addScalarFieldToFaces(aBot12, "abar_bot_12");
+                writer.addScalarFieldToFaces(aBot22, "abar_bot_22");
+                writer.addScalarFieldToFaces(bRef11, "bbar_ref_11");
+                writer.addScalarFieldToFaces(bRef12, "bbar_ref_12");
+                writer.addScalarFieldToFaces(bRef22, "bbar_ref_22");
+                writer.addScalarFieldToFaces(
+                    bRefDrift, "bbar_reference_drift_norm");
+
+                if(phase == "final")
+                {
+                    Eigen::VectorXd gauss(nFaces);
+                    Eigen::VectorXd mean(nFaces);
+                    ComputeCurvatures<tMesh> computeCurvatures;
+                    computeCurvatures.compute(mesh, gauss, mean);
+                    writer.addScalarFieldToFaces(gauss, "gauss");
+                    writer.addScalarFieldToFaces(mean, "mean");
+                }
+
+                writer.write(
+                    tag + "_cycle_" +
+                    helpers::ToString(cycle, 3) +
+                    "_" + phase);
+            };
+
+        Eigen::VectorXd zeroField =
+            Eigen::VectorXd::Zero(nFaces);
+        writeCycleState(
+            0,
+            "initial",
+            zeroField,
+            zeroField,
+            zeroField,
+            zeroField,
+            zeroField,
+            zeroField);
+
+        for(int cycle = 1; cycle <= cycle_rounds; ++cycle)
+        {
+            // The current vertices here are exactly the previous cycle's final
+            // released geometry. They are not copied into restState.
+            writeCycleMapping(cycle);
+
+            Eigen::VectorXd incG1Top =
+                Eigen::VectorXd::Zero(nFaces);
+            Eigen::VectorXd incG2Top =
+                Eigen::VectorXd::Zero(nFaces);
+            Eigen::VectorXd incG1Bot =
+                Eigen::VectorXd::Zero(nFaces);
+            Eigen::VectorXd incG2Bot =
+                Eigen::VectorXd::Zero(nFaces);
+            Eigen::VectorXd qFirst =
+                Eigen::VectorXd::Zero(nFaces);
+            Eigen::VectorXd qLast =
+                Eigen::VectorXd::Zero(nFaces);
+            Eigen::VectorXi processedThisCycle(nFaces);
+            processedThisCycle.setZero();
+
+            for(const auto& hit : materialHits)
+            {
+                const int face = hit.face_idx;
+                const Real q =
+                    hardeningFactor(totalPassCount(face));
+
+                if(processedThisCycle(face) == 0)
+                    qFirst(face) = q;
+                qLast(face) = q;
+
+                const Real g1Top =
+                    q * hit.gtop * (1.0 + hit.ortho);
+                const Real g2Top =
+                    q * hit.gtop * (1.0 - hit.ortho);
+                const Real g1Bot =
+                    q * hit.gbot * (1.0 + hit.ortho);
+                const Real g2Bot =
+                    q * hit.gbot * (1.0 - hit.ortho);
+
+                GrowthHelper<tMesh>::
+                    updateAbarWithMaterialGrowthIncrement(
+                        materialCoordinates,
+                        Connect,
+                        face,
+                        hit.angle_rad,
+                        g1Top,
+                        g2Top,
+                        aformsTop[face]);
+                GrowthHelper<tMesh>::
+                    updateAbarWithMaterialGrowthIncrement(
+                        materialCoordinates,
+                        Connect,
+                        face,
+                        hit.angle_rad,
+                        g1Bot,
+                        g2Bot,
+                        aformsBot[face]);
+
+                // These sums are diagnostics only. The exact tensor history is
+                // stored in aformsTop/aformsBot through the congruence updates.
+                incG1Top(face) += g1Top;
+                incG2Top(face) += g2Top;
+                incG1Bot(face) += g1Bot;
+                incG2Bot(face) += g2Bot;
+
+                totalPassCount(face) += 1;
+                processedThisCycle(face) += 1;
+            }
+
+            Real maxBformDrift = 0.0;
+            const tVecMat2d& currentBforms =
+                mesh.getRestConfiguration()
+                    .getSecondFundamentalForms();
+            for(int i = 0; i < nFaces; ++i)
+                maxBformDrift = std::max(
+                    maxBformDrift,
+                    (currentBforms[i] - initialBforms[i]).norm());
+
+            if(maxBformDrift > 1e-13)
+                throw std::runtime_error(
+                    "zigzag_cycles: b_r changed unexpectedly; "
+                    "history-preserving metric-only treatment requires "
+                    "the shared reference curvature to remain fixed.");
+
+            // Updates @07/19: Reset the optimizer step for every cycle.
+            // Passing the previous cycle's modified epsilon would couple the
+            // numerical optimizer history to the physical loading history.
+            Real eps_cycle = eps_init_default;
+            minimizeEnergy(
+                engOps,
+                eps_cycle,
+                tol,
+                stepwise,
+                (dump_iters.empty() ? nullptr : &dump_iters),
+                max_iter);
+            mesh.updateDeformedConfiguration();
+
+            const Real totalEnergy =
+                engOp_bot.getLastStretchingEnergy() +
+                engOp_bot.getLastBendingEnergy() +
+                engOp_bot.getLastABEnergy() +
+                engOp_top.getLastStretchingEnergy() +
+                engOp_top.getLastBendingEnergy() +
+                engOp_top.getLastABEnergy();
+
+            std::cout
+                << "[zigzag_cycles] cycle " << cycle
+                << " complete: max_total_hits="
+                << totalPassCount.maxCoeff()
+                << ", total_energy=" << totalEnergy
+                << ", max_bbar_drift=" << maxBformDrift
+                << "\n";
+
+            writeCycleState(
+                cycle,
+                "final",
+                incG1Top,
+                incG2Top,
+                incG1Bot,
+                incG2Bot,
+                qFirst,
+                qLast);
+
+            if(write_cycle_state)
+                mesh.writeToFile(
+                    tag + "_cycle_" +
+                    helpers::ToString(cycle, 3) +
+                    "_state");
+        }
+
+        const bool export_stl =
+            parser.parse<bool>("-export_stl", false);
+        const bool stl_ascii =
+            parser.parse<bool>("-stl_ascii", false);
+        if(export_stl)
+            WriteSTL::write(
+                mesh.getTopology(),
+                mesh.getCurrentConfiguration(),
+                tag + "_final_deformed",
+                stl_ascii);
+
+        // Do not execute the legacy mesh.init_rest(final_vtp) block below.
+        // Returning here preserves the original b_r and accumulated target
+        // metrics as the constitutive history.
+        return;
+    }
+
+
+    // Updates @07/19:
+    // Flexible JSON loading sequence. Each JSON item defines one toolpath
+    // recipe; every repeat is executed as a separate physical cycle:
+    // apply the complete toolpath, minimize/release, then remap the next repeat
+    // to the newly released current geometry. Top/bottom target metrics and
+    // face hit-count history persist globally; the shared b_r stays unchanged.
+    if(growth_type == "zigzag_sequence")
+    {
+        if(enable_passE)
+            throw std::runtime_error(
+                "zigzag_sequence uses hit-count eigenstrain hardening; "
+                "-enable_passE must be false.");
+
+        const int sequence_nsteps = parser.parse<int>("-nsteps", 1);
+        if(sequence_nsteps != 1)
+            throw std::runtime_error(
+                "zigzag_sequence owns the loading/release loop; use -nsteps 1.");
+
+        const std::string cycle_file =
+            parser.parse<std::string>("-cycle_file", "");
+        if(cycle_file.empty())
+            throw std::runtime_error(
+                "zigzag_sequence: provide -cycle_file sequence.json.");
+
+        const zigzag_sequence::SequenceConfig sequence =
+            zigzag_sequence::loadSequenceJson(cycle_file);
+
+        auto sanitizeIdentifier = [](const std::string& input)
+        {
+            std::string output;
+            output.reserve(input.size());
+            for(const char c : input)
+            {
+                if(std::isalnum(static_cast<unsigned char>(c)) ||
+                   c == '_' || c == '-')
+                    output.push_back(c);
+                else
+                    output.push_back('_');
+            }
+            return output.empty() ? std::string("toolpath") : output;
+        };
+
+        auto csvQuote = [](const std::string& input)
+        {
+            std::string escaped = "\"";
+            for(const char c : input)
+            {
+                if(c == '\"') escaped += "\"\"";
+                else escaped.push_back(c);
+            }
+            escaped += "\"";
+            return escaped;
+        };
+
+        std::cout
+            << "[zigzag_sequence] file=" << cycle_file
+            << ", enabled_toolpaths=" << sequence.toolpaths.size()
+            << ", hardening_beta=" << sequence.hardening.beta
+            << ", hardening_floor=" << sequence.hardening.floor
+            << "\n";
+
+        // Natural state at cycle zero. a_r(top/bottom) evolves sequentially;
+        // b_r is retained exactly for the full sequence.
+        tVecMat2d& aformsBot =
+            mesh.getRestConfiguration()
+                .getFirstFundamentalForms<bottom>();
+        tVecMat2d& aformsTop =
+            mesh.getRestConfiguration()
+                .getFirstFundamentalForms<top>();
+        const tVecMat2d initialBforms =
+            mesh.getRestConfiguration().getSecondFundamentalForms();
+
+        Eigen::VectorXi totalPassCount(nFaces);
+        totalPassCount.setZero();
+
+        MaterialProperties_Iso_Constant matprop_bot(E, nu, h_total);
+        MaterialProperties_Iso_Constant matprop_top(E, nu, h_total);
+        CombinedOperator_Parametric<tMesh, Material_Isotropic, bottom>
+            engOp_bot(matprop_bot);
+        CombinedOperator_Parametric<tMesh, Material_Isotropic, top>
+            engOp_top(matprop_top);
+        EnergyOperatorList<tMesh> engOps({&engOp_bot, &engOp_top});
+
+        const std::string dump_iters_str =
+            parser.parse<std::string>("-dump_iters", "");
+        const std::vector<int> dump_iters =
+            parse_int_list(dump_iters_str);
+        const int max_iter =
+            parser.parse<int>("-max_iter", -1);
+        const Real eps_init_default = 1e-2;
+        const Real tol = parser.parse<Real>("-tol", 1e-6);
+        const bool stepwise = parser.parse<bool>("-stepwise", false);
+        const bool write_cycle_state =
+            parser.parse<bool>("-cycle_write_state", false);
+
+        const std::string summary_filename =
+            tag + "_summary.csv";
+        std::ofstream summary(summary_filename);
+        if(!summary)
+            throw std::runtime_error(
+                "zigzag_sequence: cannot open summary CSV: " +
+                summary_filename);
+        summary << std::setprecision(17);
+        summary
+            << "executed_cycle_index,toolpath_id,toolpath_sequence_index,"
+            << "repeat_index,repeat_count,operation_count,hit_event_count,"
+            << "covered_face_count,max_hits_on_one_face_this_cycle,"
+            << "max_total_face_hit_count,hardening_factor_min,"
+            << "hardening_factor_mean,hardening_factor_max,"
+            << "max_abs_top_increment,max_abs_bottom_increment,"
+            << "max_displacement,min_U3,max_U3,total_energy,"
+            << "max_tangency_error,max_bbar_drift,mapping_file,final_file\n";
+        summary.flush();
+
+        // Material-coordinate margin filtering is applied independently to
+        // each toolpath recipe, after its face/strip events are collected.
+        auto filterHitsByMargins =
+            [&](std::vector<zigzag::MaterialHit>& hits,
+                Eigen::VectorXi& hitsThisCycle)
+            {
+                if(margin_x <= 0.0 && margin_y <= 0.0)
+                    return;
+
+                const Real uMin = materialCoordinates.col(0).minCoeff();
+                const Real uMax = materialCoordinates.col(0).maxCoeff();
+                const Real vMin = materialCoordinates.col(1).minCoeff();
+                const Real vMax = materialCoordinates.col(1).maxCoeff();
+
+                Eigen::VectorXi marginVertex(nVert);
+                marginVertex.setZero();
+                for(int i = 0; i < nVert; ++i)
+                {
+                    const Real u = materialCoordinates(i,0);
+                    const Real v = materialCoordinates(i,1);
+                    if(u <= uMin + margin_x ||
+                       u >= uMax - margin_x ||
+                       v <= vMin + margin_y ||
+                       v >= vMax - margin_y)
+                        marginVertex(i) = 1;
+                }
+
+                Eigen::VectorXi faceEnabled =
+                    Eigen::VectorXi::Ones(nFaces);
+                for(int face = 0; face < nFaces; ++face)
+                {
+                    if(marginVertex(Connect(face,0)) == 1 &&
+                       marginVertex(Connect(face,1)) == 1 &&
+                       marginVertex(Connect(face,2)) == 1)
+                        faceEnabled(face) = 0;
+                }
+
+                hits.erase(
+                    std::remove_if(
+                        hits.begin(),
+                        hits.end(),
+                        [&](const zigzag::MaterialHit& hit)
+                        {
+                            return faceEnabled(hit.face_idx) == 0;
+                        }),
+                    hits.end());
+
+                hitsThisCycle.setZero();
+                for(const auto& hit : hits)
+                    hitsThisCycle(hit.face_idx) += 1;
+            };
+
+        // Mapping diagnostic on the current start-of-cycle geometry. Returns
+        // max |n dot d| for the compact sequence summary.
+        auto writeSequenceMapping =
+            [&](const int executed_cycle,
+                const std::string& filebase,
+                const std::vector<zigzag::MaterialHit>& hits,
+                const Eigen::VectorXi& hitsThisCycle,
+                const std::vector<std::vector<int>>& hitsByFace,
+                const int maxHitsPerFace) -> Real
+            {
+                const Eigen::MatrixXd Xcurrent =
+                    mesh.getCurrentConfiguration().getVertices();
+                WriteVTK writer(Xcurrent, Connect);
+
+                const Eigen::VectorXd materialU =
+                    materialCoordinates.col(0);
+                const Eigen::VectorXd materialV =
+                    materialCoordinates.col(1);
+                const Eigen::VectorXd hitsReal =
+                    hitsThisCycle.cast<Real>();
+                const Eigen::VectorXd totalBefore =
+                    totalPassCount.cast<Real>();
+                const Eigen::VectorXd cycleField =
+                    Eigen::VectorXd::Constant(
+                        nFaces, static_cast<Real>(executed_cycle));
+
+                writer.addScalarFieldToVertices(materialU, "material_u");
+                writer.addScalarFieldToVertices(materialV, "material_v");
+                writer.addScalarFieldToFaces(cycleField, "executed_cycle_index");
+                writer.addScalarFieldToFaces(hitsReal, "hits_this_cycle");
+                writer.addScalarFieldToFaces(
+                    totalBefore, "total_hits_before_cycle");
+
+                Real maxTangencyError = 0.0;
+                for(int rank = 0; rank < maxHitsPerFace; ++rank)
+                {
+                    Eigen::VectorXd angles =
+                        Eigen::VectorXd::Zero(nFaces);
+                    Eigen::VectorXd active =
+                        Eigen::VectorXd::Zero(nFaces);
+                    Eigen::VectorXd stripIndex =
+                        Eigen::VectorXd::Constant(nFaces, -1.0);
+                    Eigen::VectorXd baseGtop =
+                        Eigen::VectorXd::Zero(nFaces);
+                    Eigen::VectorXd baseGbot =
+                        Eigen::VectorXd::Zero(nFaces);
+                    Eigen::VectorXd baseOrtho =
+                        Eigen::VectorXd::Zero(nFaces);
+
+                    for(int face = 0; face < nFaces; ++face)
+                    {
+                        if(rank >= (int)hitsByFace[face].size())
+                            continue;
+                        const auto& hit = hits[hitsByFace[face][rank]];
+                        angles(face) = hit.angle_rad;
+                        active(face) = 1.0;
+                        stripIndex(face) =
+                            static_cast<Real>(hit.strip_idx);
+                        baseGtop(face) = hit.gtop;
+                        baseGbot(face) = hit.gbot;
+                        baseOrtho(face) = hit.ortho;
+                    }
+
+                    Eigen::MatrixXd directions;
+                    GrowthHelper<tMesh>::
+                        mapMaterialAnglesToCurrentShellDirections(
+                            mesh,
+                            materialCoordinates,
+                            angles,
+                            directions);
+
+                    for(int face = 0; face < nFaces; ++face)
+                    {
+                        if(active(face) == 0.0)
+                        {
+                            directions.row(face).setZero();
+                            continue;
+                        }
+                        const Eigen::Vector3d x0 =
+                            Xcurrent.row(Connect(face,0)).transpose();
+                        const Eigen::Vector3d x1 =
+                            Xcurrent.row(Connect(face,1)).transpose();
+                        const Eigen::Vector3d x2 =
+                            Xcurrent.row(Connect(face,2)).transpose();
+                        const Eigen::Vector3d normal =
+                            (x1-x0).cross(x2-x0).normalized();
+                        maxTangencyError = std::max(
+                            maxTangencyError,
+                            std::abs(normal.dot(
+                                directions.row(face).transpose())));
+                    }
+
+                    const std::string suffix =
+                        helpers::ToString(rank + 1, 2);
+                    writer.addVectorFieldToFaces(
+                        directions,
+                        "growth_dir_3d_hit_" + suffix);
+                    writer.addScalarFieldToFaces(
+                        active,
+                        "hit_active_" + suffix);
+                    writer.addScalarFieldToFaces(
+                        angles,
+                        "growth_angle_material_hit_" + suffix);
+                    writer.addScalarFieldToFaces(
+                        stripIndex,
+                        "strip_index_hit_" + suffix);
+                    writer.addScalarFieldToFaces(
+                        baseGtop,
+                        "base_gtop_hit_" + suffix);
+                    writer.addScalarFieldToFaces(
+                        baseGbot,
+                        "base_gbot_hit_" + suffix);
+                    writer.addScalarFieldToFaces(
+                        baseOrtho,
+                        "base_ortho_hit_" + suffix);
+                }
+
+                writer.write(filebase);
+                return maxTangencyError;
+            };
+
+        auto writeSequenceState =
+            [&](const int executed_cycle,
+                const std::string& filebase,
+                const Eigen::VectorXi& hitsThisCycle,
+                const Eigen::VectorXd& incG1Top,
+                const Eigen::VectorXd& incG2Top,
+                const Eigen::VectorXd& incG1Bot,
+                const Eigen::VectorXd& incG2Bot,
+                const Eigen::VectorXd& qFirst,
+                const Eigen::VectorXd& qLast)
+            {
+                const Eigen::MatrixXd X0 =
+                    mesh.getRestConfiguration().getVertices();
+                const Eigen::MatrixXd X =
+                    mesh.getCurrentConfiguration().getVertices();
+                WriteVTK writer(X, Connect);
+
+                const Eigen::MatrixXd U = X - X0;
+                const Eigen::VectorXd U3 = U.col(2);
+                const Eigen::VectorXd Umag = U.rowwise().norm();
+                const Eigen::VectorXd materialU =
+                    materialCoordinates.col(0);
+                const Eigen::VectorXd materialV =
+                    materialCoordinates.col(1);
+                const Eigen::VectorXd hitsReal =
+                    hitsThisCycle.cast<Real>();
+                const Eigen::VectorXd totalHitsReal =
+                    totalPassCount.cast<Real>();
+                const Eigen::VectorXd cycleField =
+                    Eigen::VectorXd::Constant(
+                        nFaces, static_cast<Real>(executed_cycle));
+
+                Eigen::VectorXd qNext =
+                    Eigen::VectorXd::Zero(nFaces);
+                Eigen::VectorXd aTop11(nFaces), aTop12(nFaces), aTop22(nFaces);
+                Eigen::VectorXd aBot11(nFaces), aBot12(nFaces), aBot22(nFaces);
+                Eigen::VectorXd bRef11(nFaces), bRef12(nFaces), bRef22(nFaces);
+                Eigen::VectorXd bRefDrift(nFaces);
+
+                const tVecMat2d& currentBforms =
+                    mesh.getRestConfiguration()
+                        .getSecondFundamentalForms();
+                for(int face = 0; face < nFaces; ++face)
+                {
+                    if(hitsThisCycle(face) > 0)
+                        qNext(face) =
+                            zigzag_sequence::hardeningFactor(
+                                sequence.hardening,
+                                totalPassCount(face));
+
+                    aTop11(face) = aformsTop[face](0,0);
+                    aTop12(face) = aformsTop[face](0,1);
+                    aTop22(face) = aformsTop[face](1,1);
+                    aBot11(face) = aformsBot[face](0,0);
+                    aBot12(face) = aformsBot[face](0,1);
+                    aBot22(face) = aformsBot[face](1,1);
+                    bRef11(face) = currentBforms[face](0,0);
+                    bRef12(face) = currentBforms[face](0,1);
+                    bRef22(face) = currentBforms[face](1,1);
+                    bRefDrift(face) =
+                        (currentBforms[face] - initialBforms[face]).norm();
+                }
+
+                writer.addVectorFieldToVertices(U, "U_from_cycle0");
+                writer.addScalarFieldToVertices(U3, "U3_from_cycle0");
+                writer.addScalarFieldToVertices(Umag, "Umag_from_cycle0");
+                writer.addScalarFieldToVertices(materialU, "material_u");
+                writer.addScalarFieldToVertices(materialV, "material_v");
+
+                writer.addScalarFieldToFaces(
+                    cycleField, "executed_cycle_index");
+                writer.addScalarFieldToFaces(
+                    hitsReal, "hits_this_cycle");
+                writer.addScalarFieldToFaces(
+                    totalHitsReal, "total_hit_count");
+                writer.addScalarFieldToFaces(
+                    qFirst, "hardening_factor_first_hit");
+                writer.addScalarFieldToFaces(
+                    qLast, "hardening_factor_last_hit");
+                writer.addScalarFieldToFaces(
+                    qNext, "hardening_factor_next_hit");
+
+                writer.addScalarFieldToFaces(
+                    incG1Top, "effective_increment_g1_top_sum");
+                writer.addScalarFieldToFaces(
+                    incG2Top, "effective_increment_g2_top_sum");
+                writer.addScalarFieldToFaces(
+                    incG1Bot, "effective_increment_g1_bot_sum");
+                writer.addScalarFieldToFaces(
+                    incG2Bot, "effective_increment_g2_bot_sum");
+
+                writer.addScalarFieldToFaces(aTop11, "abar_top_11");
+                writer.addScalarFieldToFaces(aTop12, "abar_top_12");
+                writer.addScalarFieldToFaces(aTop22, "abar_top_22");
+                writer.addScalarFieldToFaces(aBot11, "abar_bot_11");
+                writer.addScalarFieldToFaces(aBot12, "abar_bot_12");
+                writer.addScalarFieldToFaces(aBot22, "abar_bot_22");
+                writer.addScalarFieldToFaces(bRef11, "bbar_ref_11");
+                writer.addScalarFieldToFaces(bRef12, "bbar_ref_12");
+                writer.addScalarFieldToFaces(bRef22, "bbar_ref_22");
+                writer.addScalarFieldToFaces(
+                    bRefDrift, "bbar_reference_drift_norm");
+
+                if(executed_cycle > 0)
+                {
+                    Eigen::VectorXd gauss(nFaces);
+                    Eigen::VectorXd mean(nFaces);
+                    ComputeCurvatures<tMesh> computeCurvatures;
+                    computeCurvatures.compute(mesh, gauss, mean);
+                    writer.addScalarFieldToFaces(gauss, "gauss");
+                    writer.addScalarFieldToFaces(mean, "mean");
+                }
+
+                writer.write(filebase);
+            };
+
+        const Eigen::VectorXi zeroHits =
+            Eigen::VectorXi::Zero(nFaces);
+        const Eigen::VectorXd zeroField =
+            Eigen::VectorXd::Zero(nFaces);
+        writeSequenceState(
+            0,
+            tag + "_cycle_000_initial",
+            zeroHits,
+            zeroField,
+            zeroField,
+            zeroField,
+            zeroField,
+            zeroField,
+            zeroField);
+
+        int executed_cycle = 0;
+        int toolpath_sequence_index = 0;
+
+        for(const auto& toolpath : sequence.toolpaths)
+        {
+            ++toolpath_sequence_index;
+            const auto& op = toolpath.operation;
+
+            zigzag::Params zz;
+            zz.Lv_mm = op.lv_mm;
+            zz.alpha_deg = op.alpha_deg;
+            zz.N_total = op.n_strips;
+            zz.w_mm = op.width_mm;
+            zz.offset_dx_mm = 0.0;
+            zz.offset_dy_mm = 0.0;
+            zz.rotation_deg = 0.0;
+            zz.last_wins = false;
+            zz.start_mode = sequence.defaults.start_mode;
+            zz.zero_outside = true;
+            zz.top_profile_mode = op.profile.mode;
+            zz.top_end_ratio = op.profile.top_end_ratio;
+            zz.top_profile_power = op.profile.top_profile_power;
+
+            zigzag::PatternPlacement placement;
+            placement.use_material_bbox_center =
+                op.use_material_bbox_center;
+            placement.center_uv_m = op.center_uv_m;
+            placement.shift_uv_m = op.shift_uv_m;
+            placement.shift_frame = op.shift_frame;
+            placement.rotation_deg = op.rotation_deg;
+            placement.require_inside_material_bounds = true;
+
+            std::vector<zigzag::MaterialHit> materialHits;
+            Eigen::VectorXi hitsThisCycle(nFaces);
+            hitsThisCycle.setZero();
+            zigzag::collectMaterialCoordinateHits(
+                materialCoordinates,
+                Connect,
+                zz,
+                placement,
+                op.gtop,
+                op.gbot,
+                op.ortho,
+                materialHits,
+                &hitsThisCycle);
+
+            filterHitsByMargins(materialHits, hitsThisCycle);
+            if(materialHits.empty())
+                throw std::runtime_error(
+                    "zigzag_sequence: toolpath '" + toolpath.id +
+                    "' covers no faces after placement and margins.");
+
+            std::vector<std::vector<int>> hitsByFace(nFaces);
+            for(int hit_index = 0;
+                hit_index < (int)materialHits.size();
+                ++hit_index)
+                hitsByFace[materialHits[hit_index].face_idx]
+                    .push_back(hit_index);
+
+            int maxHitsPerFace = 0;
+            for(const auto& faceHits : hitsByFace)
+                maxHitsPerFace = std::max(
+                    maxHitsPerFace,
+                    static_cast<int>(faceHits.size()));
+
+            const std::string safeId =
+                sanitizeIdentifier(toolpath.id);
+
+            for(int repeat_index = 1;
+                repeat_index <= toolpath.repeat;
+                ++repeat_index)
+            {
+                ++executed_cycle;
+                const std::string cyclePrefix =
+                    tag + "_cycle_" +
+                    helpers::ToString(executed_cycle, 3) +
+                    "_" + safeId + "_r" +
+                    helpers::ToString(repeat_index, 3);
+                const std::string mappingBase =
+                    cyclePrefix + "_mapping";
+                const std::string finalBase =
+                    cyclePrefix + "_final";
+
+                // Every repeat starts from the previous repeat's released
+                // current geometry and receives its own mapping and solve.
+                const Real maxTangencyError =
+                    writeSequenceMapping(
+                        executed_cycle,
+                        mappingBase,
+                        materialHits,
+                        hitsThisCycle,
+                        hitsByFace,
+                        maxHitsPerFace);
+
+                Eigen::VectorXd incG1Top =
+                    Eigen::VectorXd::Zero(nFaces);
+                Eigen::VectorXd incG2Top =
+                    Eigen::VectorXd::Zero(nFaces);
+                Eigen::VectorXd incG1Bot =
+                    Eigen::VectorXd::Zero(nFaces);
+                Eigen::VectorXd incG2Bot =
+                    Eigen::VectorXd::Zero(nFaces);
+                Eigen::VectorXd qFirst =
+                    Eigen::VectorXd::Zero(nFaces);
+                Eigen::VectorXd qLast =
+                    Eigen::VectorXd::Zero(nFaces);
+                Eigen::VectorXi processedThisCycle(nFaces);
+                processedThisCycle.setZero();
+
+                Real qMin = std::numeric_limits<Real>::max();
+                Real qMax = -std::numeric_limits<Real>::max();
+                Real qSum = 0.0;
+                int qCount = 0;
+
+                for(const auto& hit : materialHits)
+                {
+                    const int face = hit.face_idx;
+                    const Real q =
+                        zigzag_sequence::hardeningFactor(
+                            sequence.hardening,
+                            totalPassCount(face));
+
+                    if(processedThisCycle(face) == 0)
+                        qFirst(face) = q;
+                    qLast(face) = q;
+                    processedThisCycle(face) += 1;
+
+                    qMin = std::min(qMin, q);
+                    qMax = std::max(qMax, q);
+                    qSum += q;
+                    ++qCount;
+
+                    const Real g1Top =
+                        q * hit.gtop * (1.0 + hit.ortho);
+                    const Real g2Top =
+                        q * hit.gtop * (1.0 - hit.ortho);
+                    const Real g1Bot =
+                        q * hit.gbot * (1.0 + hit.ortho);
+                    const Real g2Bot =
+                        q * hit.gbot * (1.0 - hit.ortho);
+
+                    GrowthHelper<tMesh>::
+                        updateAbarWithMaterialGrowthIncrement(
+                            materialCoordinates,
+                            Connect,
+                            face,
+                            hit.angle_rad,
+                            g1Top,
+                            g2Top,
+                            aformsTop[face]);
+                    GrowthHelper<tMesh>::
+                        updateAbarWithMaterialGrowthIncrement(
+                            materialCoordinates,
+                            Connect,
+                            face,
+                            hit.angle_rad,
+                            g1Bot,
+                            g2Bot,
+                            aformsBot[face]);
+
+                    incG1Top(face) += g1Top;
+                    incG2Top(face) += g2Top;
+                    incG1Bot(face) += g1Bot;
+                    incG2Bot(face) += g2Bot;
+
+                    if(zigzag_sequence::countsTowardHistory(
+                           sequence.hardening, hit))
+                        totalPassCount(face) += 1;
+                }
+
+                Real maxBformDrift = 0.0;
+                const tVecMat2d& currentBforms =
+                    mesh.getRestConfiguration()
+                        .getSecondFundamentalForms();
+                for(int face = 0; face < nFaces; ++face)
+                    maxBformDrift = std::max(
+                        maxBformDrift,
+                        (currentBforms[face] -
+                         initialBforms[face]).norm());
+
+                if(maxBformDrift > 1e-13)
+                    throw std::runtime_error(
+                        "zigzag_sequence: b_r changed unexpectedly; "
+                        "metric-only treatment requires fixed reference curvature.");
+
+                Real eps_cycle = eps_init_default;
+                minimizeEnergy(
+                    engOps,
+                    eps_cycle,
+                    tol,
+                    stepwise,
+                    (dump_iters.empty() ? nullptr : &dump_iters),
+                    max_iter);
+                mesh.updateDeformedConfiguration();
+
+                const Real totalEnergy =
+                    engOp_bot.getLastStretchingEnergy() +
+                    engOp_bot.getLastBendingEnergy() +
+                    engOp_bot.getLastABEnergy() +
+                    engOp_top.getLastStretchingEnergy() +
+                    engOp_top.getLastBendingEnergy() +
+                    engOp_top.getLastABEnergy();
+
+                writeSequenceState(
+                    executed_cycle,
+                    finalBase,
+                    hitsThisCycle,
+                    incG1Top,
+                    incG2Top,
+                    incG1Bot,
+                    incG2Bot,
+                    qFirst,
+                    qLast);
+
+                if(write_cycle_state)
+                    mesh.writeToFile(cyclePrefix + "_state");
+
+                const Eigen::MatrixXd X0 =
+                    mesh.getRestConfiguration().getVertices();
+                const Eigen::MatrixXd X =
+                    mesh.getCurrentConfiguration().getVertices();
+                const Eigen::MatrixXd U = X - X0;
+                const Eigen::VectorXd U3 = U.col(2);
+                const Eigen::VectorXd Umag = U.rowwise().norm();
+
+                const Real maxAbsTopIncrement = std::max(
+                    incG1Top.cwiseAbs().maxCoeff(),
+                    incG2Top.cwiseAbs().maxCoeff());
+                const Real maxAbsBotIncrement = std::max(
+                    incG1Bot.cwiseAbs().maxCoeff(),
+                    incG2Bot.cwiseAbs().maxCoeff());
+                const int coveredFaces =
+                    (hitsThisCycle.array() > 0).count();
+
+                if(qCount == 0)
+                {
+                    qMin = 0.0;
+                    qMax = 0.0;
+                }
+                const Real qMean =
+                    qCount > 0 ? qSum / static_cast<Real>(qCount) : 0.0;
+
+                summary
+                    << executed_cycle << ","
+                    << csvQuote(toolpath.id) << ","
+                    << toolpath_sequence_index << ","
+                    << repeat_index << ","
+                    << toolpath.repeat << ","
+                    << 1 << ","
+                    << materialHits.size() << ","
+                    << coveredFaces << ","
+                    << hitsThisCycle.maxCoeff() << ","
+                    << totalPassCount.maxCoeff() << ","
+                    << qMin << ","
+                    << qMean << ","
+                    << qMax << ","
+                    << maxAbsTopIncrement << ","
+                    << maxAbsBotIncrement << ","
+                    << Umag.maxCoeff() << ","
+                    << U3.minCoeff() << ","
+                    << U3.maxCoeff() << ","
+                    << totalEnergy << ","
+                    << maxTangencyError << ","
+                    << maxBformDrift << ","
+                    << csvQuote(mappingBase + ".vtp") << ","
+                    << csvQuote(finalBase + ".vtp") << "\n";
+                summary.flush();
+
+                std::cout
+                    << "[zigzag_sequence] cycle=" << executed_cycle
+                    << ", toolpath='" << toolpath.id << "'"
+                    << ", repeat=" << repeat_index
+                    << "/" << toolpath.repeat
+                    << ", events=" << materialHits.size()
+                    << ", max_total_hits="
+                    << totalPassCount.maxCoeff()
+                    << ", energy=" << totalEnergy
+                    << "\n";
+            }
+        }
+
+        const bool export_stl =
+            parser.parse<bool>("-export_stl", false);
+        const bool stl_ascii =
+            parser.parse<bool>("-stl_ascii", false);
+        if(export_stl)
+            WriteSTL::write(
+                mesh.getTopology(),
+                mesh.getCurrentConfiguration(),
+                tag + "_final_deformed",
+                stl_ascii);
+
+        std::cout
+            << "[zigzag_sequence] completed " << executed_cycle
+            << " physical cycles. Summary: "
+            << summary_filename << "\n";
+
+        // Preserve target-form history and the original b_r; do not enter the
+        // legacy final mesh.init_rest(...) block below.
+        return;
+    }
 
     if (growth_type == "homo"){
       growthRates_b = Eigen::VectorXd::Constant(nFaces, growthRate_b);

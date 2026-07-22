@@ -491,7 +491,7 @@ struct GrowthHelper
 
     
     
-    // Updates @07/15:
+    // Updates @07/17:
     // Push a material-space principal angle theta(u,v) onto the tangent plane
     // of each face of the curved rest geometry.
     //
@@ -578,12 +578,218 @@ struct GrowthHelper
                 throw std::runtime_error(
                     "GrowthHelper::mapMaterialAnglesToShellDirections: "
                     "mapped tangent direction has near-zero length.");
-    
+
             d1 /= d1Norm;
             growthdirs_1.row(i) = d1.transpose();
         }
     }
-    
+
+
+    // Updates @07/19:
+    // Map material-space directions onto an explicitly supplied spatial
+    // configuration. This is used by recurring cycles to map the same fixed
+    // (u,v) toolpath onto the previous cycle's released/current geometry.
+    static void mapMaterialAnglesToDirectionsOnVertices(
+        const tMesh & mesh,
+        const Eigen::Ref<const Eigen::MatrixXd> materialCoordinates,
+        const Eigen::Ref<const Eigen::VectorXd> materialAngles,
+        const Eigen::Ref<const Eigen::MatrixXd> spatialVertices,
+        Eigen::MatrixXd & growthdirs_1)
+    {
+        const int nFaces = mesh.getNumberOfFaces();
+        const int nVertices = mesh.getNumberOfVertices();
+
+        if(materialCoordinates.rows() != nVertices ||
+           materialCoordinates.cols() < 2)
+            throw std::runtime_error(
+                "GrowthHelper::mapMaterialAnglesToDirectionsOnVertices: "
+                "materialCoordinates must be nVertices x 2 (or more).");
+
+        if(spatialVertices.rows() != nVertices ||
+           spatialVertices.cols() != 3)
+            throw std::runtime_error(
+                "GrowthHelper::mapMaterialAnglesToDirectionsOnVertices: "
+                "spatialVertices must be nVertices x 3.");
+
+        if(materialAngles.size() != nFaces)
+            throw std::runtime_error(
+                "GrowthHelper::mapMaterialAnglesToDirectionsOnVertices: "
+                "materialAngles size mismatch.");
+
+        const Eigen::MatrixXi face2vertices =
+            mesh.getTopology().getFace2Vertices();
+
+        growthdirs_1.resize(nFaces, 3);
+
+        for(int i = 0; i < nFaces; ++i)
+        {
+            const int i0 = face2vertices(i,0);
+            const int i1 = face2vertices(i,1);
+            const int i2 = face2vertices(i,2);
+
+            Eigen::Matrix2d Dm;
+            Dm.col(0) =
+                materialCoordinates.row(i1).head<2>().transpose() -
+                materialCoordinates.row(i0).head<2>().transpose();
+            Dm.col(1) =
+                materialCoordinates.row(i2).head<2>().transpose() -
+                materialCoordinates.row(i0).head<2>().transpose();
+
+            const Real scale =
+                Dm.col(0).norm() * Dm.col(1).norm();
+            const Real detDm = Dm.determinant();
+            if(scale <= std::numeric_limits<Real>::epsilon() ||
+               std::abs(detDm) <= 1e-12 * scale)
+                throw std::runtime_error(
+                    "GrowthHelper::mapMaterialAnglesToDirectionsOnVertices: "
+                    "singular/degenerate material triangle.");
+
+            Eigen::Matrix<Real,3,2> Ds;
+            Ds.col(0) =
+                spatialVertices.row(i1).transpose() -
+                spatialVertices.row(i0).transpose();
+            Ds.col(1) =
+                spatialVertices.row(i2).transpose() -
+                spatialVertices.row(i0).transpose();
+
+            const Eigen::Vector2d p(
+                std::cos(materialAngles(i)),
+                std::sin(materialAngles(i)));
+
+            const Eigen::Matrix<Real,3,2> J =
+                Ds * Dm.inverse();
+            Eigen::Vector3d d1 = J * p;
+
+            const Eigen::Vector3d cross =
+                Ds.col(0).cross(Ds.col(1));
+            if(cross.norm() <= std::numeric_limits<Real>::epsilon())
+                throw std::runtime_error(
+                    "GrowthHelper::mapMaterialAnglesToDirectionsOnVertices: "
+                    "degenerate spatial triangle.");
+
+            const Eigen::Vector3d normal = cross.normalized();
+            d1 -= d1.dot(normal) * normal;
+
+            const Real d1Norm = d1.norm();
+            if(d1Norm <= std::numeric_limits<Real>::epsilon())
+                throw std::runtime_error(
+                    "GrowthHelper::mapMaterialAnglesToDirectionsOnVertices: "
+                    "mapped tangent direction has near-zero length.");
+
+            growthdirs_1.row(i) = (d1 / d1Norm).transpose();
+        }
+    }
+
+    // Updates @07/19:
+    // Convenience wrapper for the released/current geometry at the beginning
+    // of each recurring cycle.
+    static void mapMaterialAnglesToCurrentShellDirections(
+        const tMesh & mesh,
+        const Eigen::Ref<const Eigen::MatrixXd> materialCoordinates,
+        const Eigen::Ref<const Eigen::VectorXd> materialAngles,
+        Eigen::MatrixXd & growthdirs_1)
+    {
+        const auto currentVertices =
+            mesh.getCurrentConfiguration().getVertices();
+        mapMaterialAnglesToDirectionsOnVertices(
+            mesh,
+            materialCoordinates,
+            materialAngles,
+            currentVertices,
+            growthdirs_1);
+    }
+
+    // Updates @07/19:
+    // Apply one incremental natural in-plane stretch to one face's existing
+    // target metric, preserving all previous target-form history.
+    //
+    // The metric components are stored in the TriangleInfo edge basis
+    // [e1,e2], where e1 = v2-v1 and e2 = v0-v2. Dm uses the same material
+    // edge basis. A material-space increment G(theta,g1,g2) is converted to
+    // that edge-coordinate basis through T = Dm^{-1} G Dm, followed by
+    //
+    //     a_r(new) = T^T a_r(old) T.
+    //
+    // This is a sequential tensor update: overlapping passes and later cycles
+    // do not overwrite the target metric, and b_r is intentionally untouched.
+    static void updateAbarWithMaterialGrowthIncrement(
+        const Eigen::Ref<const Eigen::MatrixXd> materialCoordinates,
+        const Eigen::Ref<const Eigen::MatrixXi> face2vertices,
+        const int face_idx,
+        const Real materialAngle,
+        const Real growth_1,
+        const Real growth_2,
+        Eigen::Matrix2d & aform)
+    {
+        if(materialCoordinates.cols() < 2)
+            throw std::runtime_error(
+                "GrowthHelper::updateAbarWithMaterialGrowthIncrement: "
+                "materialCoordinates must have at least 2 columns.");
+
+        if(face_idx < 0 || face_idx >= face2vertices.rows())
+            throw std::runtime_error(
+                "GrowthHelper::updateAbarWithMaterialGrowthIncrement: "
+                "face index out of range.");
+
+        if(1.0 + growth_1 <= 0.0 || 1.0 + growth_2 <= 0.0)
+            throw std::runtime_error(
+                "GrowthHelper::updateAbarWithMaterialGrowthIncrement: "
+                "incremental stretch ratio must remain positive.");
+
+        const int i0 = face2vertices(face_idx,0);
+        const int i1 = face2vertices(face_idx,1);
+        const int i2 = face2vertices(face_idx,2);
+
+        if(i0 < 0 || i1 < 0 || i2 < 0 ||
+           i0 >= materialCoordinates.rows() ||
+           i1 >= materialCoordinates.rows() ||
+           i2 >= materialCoordinates.rows())
+            throw std::runtime_error(
+                "GrowthHelper::updateAbarWithMaterialGrowthIncrement: "
+                "vertex index out of range.");
+
+        Eigen::Matrix2d Dm;
+        // Match TriangleInfo's aform basis exactly:
+        // e1 = v2-v1, e2 = v0-v2.
+        Dm.col(0) =
+            materialCoordinates.row(i2).head<2>().transpose() -
+            materialCoordinates.row(i1).head<2>().transpose();
+        Dm.col(1) =
+            materialCoordinates.row(i0).head<2>().transpose() -
+            materialCoordinates.row(i2).head<2>().transpose();
+
+        const Real scale =
+            Dm.col(0).norm() * Dm.col(1).norm();
+        if(scale <= std::numeric_limits<Real>::epsilon() ||
+           std::abs(Dm.determinant()) <= 1e-12 * scale)
+            throw std::runtime_error(
+                "GrowthHelper::updateAbarWithMaterialGrowthIncrement: "
+                "singular/degenerate material triangle.");
+
+        const Real c = std::cos(materialAngle);
+        const Real s = std::sin(materialAngle);
+        Eigen::Matrix2d R;
+        R << c, -s,
+             s,  c;
+
+        Eigen::Matrix2d L = Eigen::Matrix2d::Zero();
+        L(0,0) = 1.0 + growth_1;
+        L(1,1) = 1.0 + growth_2;
+
+        const Eigen::Matrix2d G = R * L * R.transpose();
+        const Eigen::Matrix2d T = Dm.inverse() * G * Dm;
+
+        aform = T.transpose() * aform * T;
+        aform = 0.5 * (aform + aform.transpose());
+
+        Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> eig(aform);
+        if(eig.info() != Eigen::Success ||
+           eig.eigenvalues().minCoeff() <= 0.0)
+            throw std::runtime_error(
+                "GrowthHelper::updateAbarWithMaterialGrowthIncrement: "
+                "updated target metric is not positive definite.");
+    }
+
     static void computeAbarsOrthoGrowthShell(const tMesh & mesh, const Eigen::Ref<const Eigen::MatrixXd> growthdirs_1, const Eigen::Ref<const Eigen::VectorXd> growthRates_1, const Eigen::Ref<const Eigen::VectorXd> growthRates_2, tVecMat2d & aforms)
     {
         const int nFaces = mesh.getNumberOfFaces();

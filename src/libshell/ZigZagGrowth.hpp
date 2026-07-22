@@ -24,6 +24,24 @@ enum class StartMode {
     LeftBottom_Up
 };
 
+// Updates @07/19:
+// Placement convention for JSON-defined toolpaths. Material-frame shifts stay
+// aligned with the fixed panel (u,v) axes; pattern-frame shifts rotate with
+// the zigzag before being added to the absolute pattern center.
+enum class ShiftFrame {
+    Material,
+    Pattern
+};
+
+struct PatternPlacement {
+    bool use_material_bbox_center = true;
+    Eigen::Vector2d center_uv_m = Eigen::Vector2d::Zero();
+    Eigen::Vector2d shift_uv_m = Eigen::Vector2d::Zero();
+    ShiftFrame shift_frame = ShiftFrame::Material;
+    double rotation_deg = 0.0;
+    bool require_inside_material_bounds = true;
+};
+
 // Add a switch
 enum class TopProfileMode {
     Uniform,
@@ -155,6 +173,23 @@ struct StripSegment {
     double gbot;           // growth bot
     double ortho;          // ortho coeff
     double angle_rad;      // orientation in [0,pi)
+};
+
+
+// Updates @07/19:
+// One physical toolpath hit on one face. Unlike the legacy "last_wins"
+// representation, this event preserves every strip/face intersection in
+// traversal order so overlap contributes multiple passes and can harden
+// the face between successive hits.
+struct MaterialHit {
+    int face_idx = -1;
+    int strip_idx = -1;
+    double angle_rad = 0.0;   // material-space principal direction, including pattern rotation
+    double gtop = 0.0;        // local/profiled scalar top growth for this hit
+    double gbot = 0.0;        // scalar bottom growth for this hit
+    double ortho = 0.0;       // orthotropy coefficient for this hit
+    double path_coord_01 = 0.5;
+    double top_profile = 1.0;
 };
 
 // Build strips from parametric zigzag (centered at origin)
@@ -473,6 +508,319 @@ inline void apply(const MeshType& mesh,
                 growthAngles(i)  = s.angle_rad;
                 orthoCoeffFaces(i) = s.ortho;
             }
+        }
+    }
+}
+
+
+
+// Updates @07/19:
+// Collect every material-coordinate zigzag hit without overwriting overlaps.
+// The returned vector is ordered first by strip traversal order and then by
+// face index. hitCountFaces reports the number of physical strip hits during
+// one complete zigzag cycle, independent of whether the assigned growth is
+// zero. This is the event source for the history-preserving recurring case.
+inline void collectMaterialCoordinateHits(
+                  const Eigen::Ref<const Eigen::MatrixXd> materialCoordinates,
+                  const Eigen::Ref<const Eigen::MatrixXi> face2vertices,
+                  const Params& zz,
+                  const std::vector<double>& gtop_list,
+                  const std::vector<double>& gbot_list,
+                  const std::vector<double>& ortho_list,
+                  std::vector<MaterialHit>& hits,
+                  Eigen::VectorXi* hitCountFaces = nullptr)
+{
+    if(materialCoordinates.cols() < 2)
+        throw std::runtime_error(
+            "zigzag::collectMaterialCoordinateHits: materialCoordinates must have at least 2 columns.");
+
+    const int nFaces = face2vertices.rows();
+    if ((int)gtop_list.size() != zz.N_total ||
+        (int)gbot_list.size() != zz.N_total ||
+        (int)ortho_list.size() != zz.N_total)
+        throw std::runtime_error(
+            "zigzag::collectMaterialCoordinateHits: parameter lists must have size N_total.");
+
+    if (hitCountFaces && hitCountFaces->size() != nFaces)
+        throw std::runtime_error(
+            "zigzag::collectMaterialCoordinateHits: hitCountFaces size mismatch.");
+
+    if(face2vertices.size() > 0)
+    {
+        const int maxVertexIndex = face2vertices.maxCoeff();
+        const int minVertexIndex = face2vertices.minCoeff();
+        if(minVertexIndex < 0 || maxVertexIndex >= materialCoordinates.rows())
+            throw std::runtime_error(
+                "zigzag::collectMaterialCoordinateHits: face index exceeds material-coordinate array.");
+    }
+
+    const auto strips =
+        buildZigZagStrips(zz, gtop_list, gbot_list, ortho_list);
+    const double half_w = 0.5 * (zz.w_mm * 1e-3);
+    const double dx = zz.offset_dx_mm * 1e-3;
+    const double dy = zz.offset_dy_mm * 1e-3;
+    const double rot_rad = deg2rad(zz.rotation_deg);
+    const Eigen::Matrix2d Rinv = rot2d(-rot_rad);
+
+    const double umin = materialCoordinates.col(0).minCoeff();
+    const double umax = materialCoordinates.col(0).maxCoeff();
+    const double vmin = materialCoordinates.col(1).minCoeff();
+    const double vmax = materialCoordinates.col(1).maxCoeff();
+
+    const Eigen::Vector2d center(
+        0.5 * (umin + umax),
+        0.5 * (vmin + vmax));
+
+    checkTransformedFootprintInsidePanel(
+        strips,
+        half_w,
+        umax - umin,
+        vmax - vmin,
+        dx,
+        dy,
+        rot_rad);
+
+    hits.clear();
+    if(hitCountFaces)
+        hitCountFaces->setZero();
+
+    for (int k = 0; k < (int)strips.size(); ++k)
+    {
+        const auto& strip = strips[k];
+
+        for (int i = 0; i < nFaces; ++i)
+        {
+            const int i0 = face2vertices(i,0);
+            const int i1 = face2vertices(i,1);
+            const int i2 = face2vertices(i,2);
+
+            const Eigen::Vector2d centroid(
+                (materialCoordinates(i0,0) +
+                 materialCoordinates(i1,0) +
+                 materialCoordinates(i2,0)) / 3.0,
+                (materialCoordinates(i0,1) +
+                 materialCoordinates(i1,1) +
+                 materialCoordinates(i2,1)) / 3.0);
+
+            const Eigen::Vector2d centered = centroid - center;
+            const Eigen::Vector2d untranslated =
+                centered - Eigen::Vector2d(dx, dy);
+            const Eigen::Vector2d local = Rinv * untranslated;
+
+            if(dist_point_segment_2d(local, strip.a, strip.b) > half_w)
+                continue;
+
+            const double s01 =
+                path_coord_01_on_segment_2d(local, strip.a, strip.b);
+
+            double profile = 1.0;
+            if(zz.top_profile_mode == TopProfileMode::CenterPeak)
+            {
+                profile = center_peak_profile_01(
+                    s01,
+                    zz.top_end_ratio,
+                    zz.top_profile_power);
+            }
+
+            MaterialHit hit;
+            hit.face_idx = i;
+            hit.strip_idx = k;
+            hit.angle_rad =
+                normalize_angle_pi(strip.angle_rad + rot_rad);
+            hit.gtop = strip.gtop * profile;
+            hit.gbot = strip.gbot;
+            hit.ortho = strip.ortho;
+            hit.path_coord_01 = s01;
+            hit.top_profile = profile;
+            hits.push_back(hit);
+
+            if(hitCountFaces)
+                (*hitCountFaces)(i) += 1;
+        }
+    }
+}
+
+
+
+// Updates @07/19:
+// Check a placement against the actual material-coordinate bounds. Unlike the
+// legacy helper, this routine supports an absolute center that need not equal
+// the panel center and supports material- or pattern-frame shifts.
+inline void checkPlacedFootprintInsideMaterialBounds(
+    const std::vector<StripSegment>& strips,
+    const double half_w,
+    const double umin,
+    const double umax,
+    const double vmin,
+    const double vmax,
+    const PatternPlacement& placement)
+{
+    if(strips.empty() || !placement.require_inside_material_bounds)
+        return;
+
+    double xmin =  1e300, xmax = -1e300;
+    double ymin =  1e300, ymax = -1e300;
+    for(const auto& strip : strips)
+    {
+        xmin = std::min(xmin, std::min(strip.a.x(), strip.b.x()));
+        xmax = std::max(xmax, std::max(strip.a.x(), strip.b.x()));
+        ymin = std::min(ymin, std::min(strip.a.y(), strip.b.y()));
+        ymax = std::max(ymax, std::max(strip.a.y(), strip.b.y()));
+    }
+    xmin -= half_w; xmax += half_w;
+    ymin -= half_w; ymax += half_w;
+
+    const Eigen::Vector2d materialCenter(
+        0.5 * (umin + umax),
+        0.5 * (vmin + vmax));
+    const Eigen::Vector2d center =
+        placement.use_material_bbox_center ?
+            materialCenter : placement.center_uv_m;
+
+    const double rot_rad = deg2rad(placement.rotation_deg);
+    const Eigen::Matrix2d R = rot2d(rot_rad);
+    const Eigen::Vector2d translation =
+        placement.shift_frame == ShiftFrame::Material ?
+            placement.shift_uv_m : R * placement.shift_uv_m;
+
+    const Eigen::Vector2d corners[4] = {
+        Eigen::Vector2d(xmin, ymin),
+        Eigen::Vector2d(xmin, ymax),
+        Eigen::Vector2d(xmax, ymin),
+        Eigen::Vector2d(xmax, ymax)
+    };
+
+    double placedUmin =  1e300, placedUmax = -1e300;
+    double placedVmin =  1e300, placedVmax = -1e300;
+    for(const auto& corner : corners)
+    {
+        const Eigen::Vector2d placed = center + R * corner + translation;
+        placedUmin = std::min(placedUmin, placed.x());
+        placedUmax = std::max(placedUmax, placed.x());
+        placedVmin = std::min(placedVmin, placed.y());
+        placedVmax = std::max(placedVmax, placed.y());
+    }
+
+    const double tol = 1e-12 * std::max(1.0, std::max(umax-umin, vmax-vmin));
+    if(placedUmin < umin - tol || placedUmax > umax + tol ||
+       placedVmin < vmin - tol || placedVmax > vmax + tol)
+    {
+        std::ostringstream oss;
+        oss << "zigzag placement moves footprint outside material bounds.\n"
+            << "Placed footprint: u=[" << placedUmin << ", " << placedUmax
+            << "], v=[" << placedVmin << ", " << placedVmax << "] m\n"
+            << "Material bounds: u=[" << umin << ", " << umax
+            << "], v=[" << vmin << ", " << vmax << "] m";
+        throw std::runtime_error(oss.str());
+    }
+}
+
+// Updates @07/19:
+// Placement-aware event collector for JSON loading sequences. The canonical
+// zigzag is constructed about its local origin and transformed by
+//
+//   p_uv = center + R(rotation) p_local + shift_material,
+//
+// or by center + R(rotation)(p_local + shift_pattern). The returned material
+// angle includes the pattern rotation. Every face/strip intersection remains
+// an independent hit so pass counting and hardening are unambiguous.
+inline void collectMaterialCoordinateHits(
+    const Eigen::Ref<const Eigen::MatrixXd> materialCoordinates,
+    const Eigen::Ref<const Eigen::MatrixXi> face2vertices,
+    const Params& zz,
+    const PatternPlacement& placement,
+    const std::vector<double>& gtop_list,
+    const std::vector<double>& gbot_list,
+    const std::vector<double>& ortho_list,
+    std::vector<MaterialHit>& hits,
+    Eigen::VectorXi* hitCountFaces = nullptr)
+{
+    if(materialCoordinates.cols() < 2)
+        throw std::runtime_error(
+            "zigzag::collectMaterialCoordinateHits(placement): materialCoordinates must have at least 2 columns.");
+
+    const int nFaces = face2vertices.rows();
+    if((int)gtop_list.size() != zz.N_total ||
+       (int)gbot_list.size() != zz.N_total ||
+       (int)ortho_list.size() != zz.N_total)
+        throw std::runtime_error(
+            "zigzag::collectMaterialCoordinateHits(placement): parameter lists must have size N_total.");
+    if(hitCountFaces && hitCountFaces->size() != nFaces)
+        throw std::runtime_error(
+            "zigzag::collectMaterialCoordinateHits(placement): hitCountFaces size mismatch.");
+
+    if(face2vertices.size() > 0)
+    {
+        const int minVertexIndex = face2vertices.minCoeff();
+        const int maxVertexIndex = face2vertices.maxCoeff();
+        if(minVertexIndex < 0 || maxVertexIndex >= materialCoordinates.rows())
+            throw std::runtime_error(
+                "zigzag::collectMaterialCoordinateHits(placement): face index exceeds material-coordinate array.");
+    }
+
+    const auto strips = buildZigZagStrips(
+        zz, gtop_list, gbot_list, ortho_list);
+    const double half_w = 0.5 * zz.w_mm * 1e-3;
+    const double umin = materialCoordinates.col(0).minCoeff();
+    const double umax = materialCoordinates.col(0).maxCoeff();
+    const double vmin = materialCoordinates.col(1).minCoeff();
+    const double vmax = materialCoordinates.col(1).maxCoeff();
+
+    checkPlacedFootprintInsideMaterialBounds(
+        strips, half_w, umin, umax, vmin, vmax, placement);
+
+    const Eigen::Vector2d materialCenter(
+        0.5 * (umin + umax),
+        0.5 * (vmin + vmax));
+    const Eigen::Vector2d center =
+        placement.use_material_bbox_center ?
+            materialCenter : placement.center_uv_m;
+
+    const double rot_rad = deg2rad(placement.rotation_deg);
+    const Eigen::Matrix2d R = rot2d(rot_rad);
+    const Eigen::Matrix2d Rinv = rot2d(-rot_rad);
+    const Eigen::Vector2d translation =
+        placement.shift_frame == ShiftFrame::Material ?
+            placement.shift_uv_m : R * placement.shift_uv_m;
+
+    hits.clear();
+    if(hitCountFaces) hitCountFaces->setZero();
+
+    for(int k = 0; k < (int)strips.size(); ++k)
+    {
+        const auto& strip = strips[k];
+        for(int face = 0; face < nFaces; ++face)
+        {
+            const int i0 = face2vertices(face,0);
+            const int i1 = face2vertices(face,1);
+            const int i2 = face2vertices(face,2);
+            const Eigen::Vector2d centroid(
+                (materialCoordinates(i0,0) + materialCoordinates(i1,0) + materialCoordinates(i2,0)) / 3.0,
+                (materialCoordinates(i0,1) + materialCoordinates(i1,1) + materialCoordinates(i2,1)) / 3.0);
+
+            const Eigen::Vector2d local =
+                Rinv * (centroid - center - translation);
+            if(dist_point_segment_2d(local, strip.a, strip.b) > half_w)
+                continue;
+
+            const double s01 = path_coord_01_on_segment_2d(
+                local, strip.a, strip.b);
+            double profile = 1.0;
+            if(zz.top_profile_mode == TopProfileMode::CenterPeak)
+                profile = center_peak_profile_01(
+                    s01, zz.top_end_ratio, zz.top_profile_power);
+
+            MaterialHit hit;
+            hit.face_idx = face;
+            hit.strip_idx = k;
+            hit.angle_rad = normalize_angle_pi(strip.angle_rad + rot_rad);
+            hit.gtop = strip.gtop * profile;
+            hit.gbot = strip.gbot;
+            hit.ortho = strip.ortho;
+            hit.path_coord_01 = s01;
+            hit.top_profile = profile;
+            hits.push_back(hit);
+            if(hitCountFaces) (*hitCountFaces)(face) += 1;
         }
     }
 }

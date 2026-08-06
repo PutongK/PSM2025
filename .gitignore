@@ -1,8 +1,11 @@
-# Ignore the build, lib and doc dirs
+# Ignore the build, lib, doc dirs and run/* scripts
 build
+build_cmake
+build_cmake/*
 build_hlbfgs
 lib/*
 doc
+run/*
 
 # Ignore the Xcode stuff
 *.pbxuser

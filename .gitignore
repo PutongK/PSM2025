@@ -6,6 +6,7 @@ build_hlbfgs
 lib/*
 doc
 run/*
+patches/*
 
 # Ignore the Xcode stuff
 *.pbxuser

@@ -34,6 +34,7 @@
 
 // Updates @07/19: JSON-defined recurring toolpath sequence.
 #include "ZigZagSequenceGrowth.hpp"
+#include "ZigZagSequenceBoundaryConditions.hpp"
 
 #include <stdexcept>
 #include <fstream>   // Updates @07/19: sequence summary CSV
@@ -91,6 +92,7 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     // - zigzag (zigzag pattern) New function added ver-0203
     // - zigzag_cycles (Updates @07/19: recurring, pass-count hardened zigzag)
     // - zigzag_sequence (Updates @07/19: JSON-defined toolpath recipes; each repeat is a new released cycle)
+    // - zigzag_sequence_BC (persistent two-region full fixation, then final release)
     // - rect_spiral
     // - multi_zigzag (JSON-defined rectangular patches with patch-centered zigzag paths)
 
@@ -917,26 +919,104 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     // apply the complete toolpath, minimize/release, then remap the next repeat
     // to the newly released current geometry. Top/bottom target metrics and
     // face hit-count history persist globally; the shared b_r stays unchanged.
-    if(growth_type == "zigzag_sequence")
+    if(growth_type == "zigzag_sequence" ||
+       growth_type == "zigzag_sequence_BC")
     {
+        const bool use_sequence_bc = (growth_type == "zigzag_sequence_BC");
         if(enable_passE)
             throw std::runtime_error(
-                "zigzag_sequence uses hit-count eigenstrain hardening; "
+                growth_type + " uses hit-count eigenstrain hardening; "
                 "-enable_passE must be false.");
 
         const int sequence_nsteps = parser.parse<int>("-nsteps", 1);
         if(sequence_nsteps != 1)
             throw std::runtime_error(
-                "zigzag_sequence owns the loading/release loop; use -nsteps 1.");
+                growth_type + " owns the loading/release loop; use -nsteps 1.");
 
         const std::string cycle_file =
             parser.parse<std::string>("-cycle_file", "");
         if(cycle_file.empty())
             throw std::runtime_error(
-                "zigzag_sequence: provide -cycle_file sequence.json.");
+                growth_type + ": provide -cycle_file sequence.json.");
 
         const zigzag_sequence::SequenceConfig sequence =
             zigzag_sequence::loadSequenceJson(cycle_file);
+
+        if(!use_sequence_bc && sequence.boundary_conditions.enabled)
+            throw std::runtime_error(
+                "zigzag_sequence: the JSON enables boundary_conditions. "
+                "Run with -growth_type zigzag_sequence_BC instead.");
+
+        Eigen::MatrixXb physicalClampMask =
+            Eigen::MatrixXb::Constant(nVert, 3, false);
+        Eigen::VectorXd physicalClampRegionId =
+            Eigen::VectorXd::Zero(nVert);
+        std::vector<int> clampRegionVertexCounts;
+        std::ofstream cycleReadme;
+
+        if(use_sequence_bc)
+        {
+            if(!sequence.boundary_conditions.enabled)
+                throw std::runtime_error(
+                    "zigzag_sequence_BC: JSON boundary_conditions.enabled "
+                    "must be true.");
+            if(sequence.boundary_conditions.regions.size() != 2)
+                throw std::runtime_error(
+                    "zigzag_sequence_BC first version requires exactly two "
+                    "rectangular clamp regions.");
+
+            const Eigen::MatrixXb initialBC =
+                mesh.getBoundaryConditions().getVertexBoundaryConditions();
+            if(zigzag_sequence_bc::countFixedDofs(initialBC) != 0)
+                throw std::runtime_error(
+                    "zigzag_sequence_BC first version requires a geometry "
+                    "without pre-existing vertex boundary conditions. Use "
+                    "rectangle, curved_rectangle, or an unconstrained external mesh.");
+
+            const auto clampResult =
+                zigzag_sequence_bc::buildFullFixationMask(
+                    materialCoordinates,
+                    sequence.boundary_conditions);
+            physicalClampMask = clampResult.vertex_mask;
+            physicalClampRegionId = clampResult.region_id;
+            clampRegionVertexCounts = clampResult.region_vertex_counts;
+            zigzag_sequence_bc::applyVertexMask(mesh, physicalClampMask);
+
+            cycleReadme.open("README_cycles.md");
+            if(!cycleReadme)
+                throw std::runtime_error(
+                    "zigzag_sequence_BC: cannot open README_cycles.md.");
+            cycleReadme
+                << "# zigzag_sequence_BC cycle map\n\n"
+                << "- JSON file: `" << cycle_file << "`\n"
+                << "- Physical clamp coordinate system: material `(u,v)`\n"
+                << "- Physical clamp mode: full fixation of `x`, `y`, and `z`\n"
+                << "- Fixed physical-clamp vertices: "
+                << clampResult.fixed_vertex_count << "\n"
+                << "- Fixed physical-clamp DOFs: "
+                << clampResult.fixed_dof_count << "\n"
+                << "- Release after final cycle: "
+                << (sequence.boundary_conditions.release_after_final_cycle ?
+                    "true" : "false") << "\n\n";
+            for(std::size_t region = 0;
+                region < sequence.boundary_conditions.regions.size();
+                ++region)
+            {
+                const auto& r = sequence.boundary_conditions.regions[region];
+                cycleReadme
+                    << "- Clamp " << (region + 1) << " (`" << r.name
+                    << "`): center_uv_mm = ["
+                    << r.center_uv_m(0) * 1e3 << ", "
+                    << r.center_uv_m(1) * 1e3 << "], size_uv_mm = ["
+                    << r.size_uv_m(0) * 1e3 << ", "
+                    << r.size_uv_m(1) * 1e3 << "], rotation_deg = "
+                    << r.rotation_deg << ", selected vertices = "
+                    << clampRegionVertexCounts[region] << "\n";
+            }
+            cycleReadme
+                << "\n| File | Physical cycle | Toolpath | Repeat | State |\n"
+                << "|---|---:|---|---:|---|\n";
+        }
 
         auto sanitizeIdentifier = [](const std::string& input)
         {
@@ -966,7 +1046,7 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
         };
 
         std::cout
-            << "[zigzag_sequence] file=" << cycle_file
+            << "[" << growth_type << "] file=" << cycle_file
             << ", enabled_toolpaths=" << sequence.toolpaths.size()
             << ", hardening_beta=" << sequence.hardening.beta
             << ", hardening_floor=" << sequence.hardening.floor
@@ -1007,13 +1087,16 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
             parser.parse<bool>("-cycle_write_state", false);
 
         const std::string summary_filename =
-            tag + "_summary.csv";
+            use_sequence_bc ? "cycle_summary.csv" : tag + "_summary.csv";
         std::ofstream summary(summary_filename);
         if(!summary)
             throw std::runtime_error(
                 "zigzag_sequence: cannot open summary CSV: " +
                 summary_filename);
         summary << std::setprecision(17);
+        if(use_sequence_bc)
+            summary
+                << "output_index,is_release_state,physical_clamps_active,";
         summary
             << "executed_cycle_index,toolpath_id,toolpath_sequence_index,"
             << "repeat_index,repeat_count,operation_count,hit_event_count,"
@@ -1076,6 +1159,11 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
                 for(const auto& hit : hits)
                     hitsThisCycle(hit.face_idx) += 1;
             };
+
+        int bcOutputIndex = -1;
+        bool bcOutputIsRelease = false;
+        bool bcOutputPhysicalClampsActive = false;
+        bool bcOutputGaugeActive = false;
 
         // Mapping diagnostic on the current start-of-cycle geometry. Returns
         // max |n dot d| for the compact sequence summary.
@@ -1267,6 +1355,39 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
                 writer.addScalarFieldToVertices(materialU, "material_u");
                 writer.addScalarFieldToVertices(materialV, "material_v");
 
+                if(use_sequence_bc)
+                {
+                    const Eigen::VectorXd outputIndexField =
+                        Eigen::VectorXd::Constant(
+                            nVert, static_cast<Real>(bcOutputIndex));
+                    const Eigen::VectorXd releaseField =
+                        Eigen::VectorXd::Constant(
+                            nVert, bcOutputIsRelease ? 1.0 : 0.0);
+                    const Eigen::VectorXd physicalActiveField =
+                        Eigen::VectorXd::Constant(
+                            nVert,
+                            bcOutputPhysicalClampsActive ? 1.0 : 0.0);
+                    const Eigen::VectorXd gaugeActiveField =
+                        Eigen::VectorXd::Constant(
+                            nVert, bcOutputGaugeActive ? 1.0 : 0.0);
+                    const Eigen::VectorXd activeFixedDofs =
+                        zigzag_sequence_bc::activeFixedDofCountPerVertex(
+                            mesh.getBoundaryConditions()
+                                .getVertexBoundaryConditions());
+                    writer.addScalarFieldToVertices(
+                        physicalClampRegionId, "physical_clamp_region_id");
+                    writer.addScalarFieldToVertices(
+                        outputIndexField, "output_index");
+                    writer.addScalarFieldToVertices(
+                        releaseField, "is_release_state");
+                    writer.addScalarFieldToVertices(
+                        physicalActiveField, "physical_clamps_active");
+                    writer.addScalarFieldToVertices(
+                        gaugeActiveField, "numerical_gauge_active");
+                    writer.addScalarFieldToVertices(
+                        activeFixedDofs, "active_fixed_dof_count");
+                }
+
                 writer.addScalarFieldToFaces(
                     cycleField, "executed_cycle_index");
                 writer.addScalarFieldToFaces(
@@ -1318,16 +1439,76 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
             Eigen::VectorXi::Zero(nFaces);
         const Eigen::VectorXd zeroField =
             Eigen::VectorXd::Zero(nFaces);
-        writeSequenceState(
-            0,
-            tag + "_cycle_000_initial",
-            zeroHits,
-            zeroField,
-            zeroField,
-            zeroField,
-            zeroField,
-            zeroField,
-            zeroField);
+        if(use_sequence_bc)
+        {
+            // Output index 000 is the undeformed initial geometry. The
+            // physical clamp mask is already active, but no growth cycle has
+            // been applied and no equilibrium solve has been performed yet.
+            bcOutputIndex = 0;
+            bcOutputIsRelease = false;
+            bcOutputPhysicalClampsActive = true;
+            bcOutputGaugeActive = false;
+
+            const std::string initialBase = "cycle_000";
+            writeSequenceState(
+                0,
+                initialBase,
+                zeroHits,
+                zeroField,
+                zeroField,
+                zeroField,
+                zeroField,
+                zeroField,
+                zeroField);
+
+            summary
+                << 0 << ","       // output_index
+                << 0 << ","       // is_release_state
+                << 1 << ","       // physical_clamps_active
+                << 0 << ","       // executed_cycle_index
+                << csvQuote("INITIAL") << ","
+                << 0 << ","       // toolpath_sequence_index
+                << 0 << ","       // repeat_index
+                << 0 << ","       // repeat_count
+                << 0 << ","       // operation_count
+                << 0 << ","       // hit_event_count
+                << 0 << ","       // covered_face_count
+                << 0 << ","       // max_hits_on_one_face_this_cycle
+                << 0 << ","       // max_total_face_hit_count
+                << 0.0 << ","     // hardening_factor_min
+                << 0.0 << ","     // hardening_factor_mean
+                << 0.0 << ","     // hardening_factor_max
+                << 0.0 << ","     // max_abs_top_increment
+                << 0.0 << ","     // max_abs_bottom_increment
+                << 0.0 << ","     // max_displacement
+                << 0.0 << ","     // min_U3
+                << 0.0 << ","     // max_U3
+                << 0.0 << ","     // total_energy at the natural initial state
+                << 0.0 << ","     // max_tangency_error
+                << 0.0 << ","     // max_bbar_drift
+                << csvQuote("") << ","
+                << csvQuote(initialBase + ".vtp") << "\n";
+            summary.flush();
+
+            cycleReadme
+                << "| `" << initialBase << ".vtp` | 0 | - | - | "
+                << "initial geometry; physical clamps active; no growth applied |\n";
+            cycleReadme.flush();
+        }
+        else
+        {
+            // Preserve the original zigzag_sequence initial output exactly.
+            writeSequenceState(
+                0,
+                tag + "_cycle_000_initial",
+                zeroHits,
+                zeroField,
+                zeroField,
+                zeroField,
+                zeroField,
+                zeroField,
+                zeroField);
+        }
 
         int executed_cycle = 0;
         int toolpath_sequence_index = 0;
@@ -1402,15 +1583,22 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
                 ++repeat_index)
             {
                 ++executed_cycle;
+                // BC output index 000 is reserved for the initial geometry.
+                // Therefore physical cycle k is written as cycle_k.
+                const int output_index = executed_cycle;
                 const std::string cyclePrefix =
-                    tag + "_cycle_" +
-                    helpers::ToString(executed_cycle, 3) +
-                    "_" + safeId + "_r" +
-                    helpers::ToString(repeat_index, 3);
+                    use_sequence_bc ?
+                        ("cycle_" + helpers::ToString(output_index, 3)) :
+                        (tag + "_cycle_" +
+                         helpers::ToString(executed_cycle, 3) +
+                         "_" + safeId + "_r" +
+                         helpers::ToString(repeat_index, 3));
                 const std::string mappingBase =
-                    cyclePrefix + "_mapping";
+                    use_sequence_bc ?
+                        ("mapping_" + helpers::ToString(output_index, 3)) :
+                        cyclePrefix + "_mapping";
                 const std::string finalBase =
-                    cyclePrefix + "_final";
+                    use_sequence_bc ? cyclePrefix : cyclePrefix + "_final";
 
                 // Every repeat starts from the previous repeat's released
                 // current geometry and receives its own mapping and solve.
@@ -1515,13 +1703,22 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
                         "metric-only treatment requires fixed reference curvature.");
 
                 Real eps_cycle = eps_init_default;
-                minimizeEnergy(
-                    engOps,
-                    eps_cycle,
-                    tol,
-                    stepwise,
-                    (dump_iters.empty() ? nullptr : &dump_iters),
-                    max_iter);
+                if(use_sequence_bc)
+                    minimizeEnergyReduced(
+                        engOps,
+                        eps_cycle,
+                        tol,
+                        stepwise,
+                        (dump_iters.empty() ? nullptr : &dump_iters),
+                        max_iter);
+                else
+                    minimizeEnergy(
+                        engOps,
+                        eps_cycle,
+                        tol,
+                        stepwise,
+                        (dump_iters.empty() ? nullptr : &dump_iters),
+                        max_iter);
                 mesh.updateDeformedConfiguration();
 
                 const Real totalEnergy =
@@ -1531,6 +1728,11 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
                     engOp_top.getLastStretchingEnergy() +
                     engOp_top.getLastBendingEnergy() +
                     engOp_top.getLastABEnergy();
+
+                bcOutputIndex = output_index;
+                bcOutputIsRelease = false;
+                bcOutputPhysicalClampsActive = use_sequence_bc;
+                bcOutputGaugeActive = false;
 
                 writeSequenceState(
                     executed_cycle,
@@ -1571,6 +1773,12 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
                 const Real qMean =
                     qCount > 0 ? qSum / static_cast<Real>(qCount) : 0.0;
 
+                if(use_sequence_bc)
+                    summary
+                        << output_index << ","
+                        << 0 << ","
+                        << 1 << ",";
+
                 summary
                     << executed_cycle << ","
                     << csvQuote(toolpath.id) << ","
@@ -1597,8 +1805,18 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
                     << csvQuote(finalBase + ".vtp") << "\n";
                 summary.flush();
 
+                if(use_sequence_bc)
+                {
+                    cycleReadme
+                        << "| `" << finalBase << ".vtp` | "
+                        << executed_cycle << " | `" << toolpath.id
+                        << "` | " << repeat_index
+                        << " | constrained; two physical clamps active |\n";
+                    cycleReadme.flush();
+                }
+
                 std::cout
-                    << "[zigzag_sequence] cycle=" << executed_cycle
+                    << "[" << growth_type << "] cycle=" << executed_cycle
                     << ", toolpath='" << toolpath.id << "'"
                     << ", repeat=" << repeat_index
                     << "/" << toolpath.repeat
@@ -1608,6 +1826,108 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
                     << ", energy=" << totalEnergy
                     << "\n";
             }
+        }
+
+
+        if(use_sequence_bc &&
+           sequence.boundary_conditions.release_after_final_cycle)
+        {
+            const auto gauge =
+                zigzag_sequence_bc::buildMinimalReleaseGaugeMask(
+                    materialCoordinates);
+            zigzag_sequence_bc::applyVertexMask(mesh, gauge.vertex_mask);
+
+            Real eps_release = eps_init_default;
+            minimizeEnergyReduced(
+                engOps,
+                eps_release,
+                tol,
+                stepwise,
+                (dump_iters.empty() ? nullptr : &dump_iters),
+                max_iter);
+            mesh.updateDeformedConfiguration();
+
+            const Real releaseEnergy =
+                engOp_bot.getLastStretchingEnergy() +
+                engOp_bot.getLastBendingEnergy() +
+                engOp_bot.getLastABEnergy() +
+                engOp_top.getLastStretchingEnergy() +
+                engOp_top.getLastBendingEnergy() +
+                engOp_top.getLastABEnergy();
+            // The release follows the last constrained physical cycle.
+            const int release_output_index = executed_cycle + 1;
+            const std::string releaseBase =
+                "cycle_" + helpers::ToString(release_output_index, 3);
+
+            bcOutputIndex = release_output_index;
+            bcOutputIsRelease = true;
+            bcOutputPhysicalClampsActive = false;
+            bcOutputGaugeActive = true;
+            writeSequenceState(
+                executed_cycle,
+                releaseBase,
+                zeroHits,
+                zeroField,
+                zeroField,
+                zeroField,
+                zeroField,
+                zeroField,
+                zeroField);
+
+            const Eigen::MatrixXd X0 =
+                mesh.getRestConfiguration().getVertices();
+            const Eigen::MatrixXd X =
+                mesh.getCurrentConfiguration().getVertices();
+            const Eigen::MatrixXd U = X - X0;
+            const Eigen::VectorXd U3 = U.col(2);
+            const Eigen::VectorXd Umag = U.rowwise().norm();
+
+            summary
+                << release_output_index << ","
+                << 1 << ","
+                << 0 << ","
+                << executed_cycle << ","
+                << csvQuote("FINAL_RELEASE") << ","
+                << 0 << ","
+                << 0 << ","
+                << 0 << ","
+                << 0 << ","
+                << 0 << ","
+                << 0 << ","
+                << 0 << ","
+                << totalPassCount.maxCoeff() << ","
+                << 0.0 << ","
+                << 0.0 << ","
+                << 0.0 << ","
+                << 0.0 << ","
+                << 0.0 << ","
+                << Umag.maxCoeff() << ","
+                << U3.minCoeff() << ","
+                << U3.maxCoeff() << ","
+                << releaseEnergy << ","
+                << 0.0 << ","
+                << 0.0 << ","
+                << csvQuote("") << ","
+                << csvQuote(releaseBase + ".vtp") << "\n";
+            summary.flush();
+
+            cycleReadme
+                << "| `" << releaseBase << ".vtp` | "
+                << executed_cycle
+                << " | - | - | released; physical clamps removed; "
+                << "six-DOF numerical gauge active |\n\n"
+                << "## Final-release numerical gauge\n\n"
+                << "- Vertex A (x,y,z fixed): " << gauge.vertex_ids[0] << "\n"
+                << "- Vertex B (y,z fixed): " << gauge.vertex_ids[1] << "\n"
+                << "- Vertex C (z fixed): " << gauge.vertex_ids[2] << "\n";
+            cycleReadme.flush();
+
+            std::cout
+                << "[zigzag_sequence_BC] final release output="
+                << releaseBase << ".vtp, energy=" << releaseEnergy
+                << ", gauge_vertices=[" << gauge.vertex_ids[0] << ","
+                << gauge.vertex_ids[1] << "," << gauge.vertex_ids[2]
+                << "]\n";
         }
 
         const bool export_stl =
@@ -1622,7 +1942,7 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
                 stl_ascii);
 
         std::cout
-            << "[zigzag_sequence] completed " << executed_cycle
+            << "[" << growth_type << "] completed " << executed_cycle
             << " physical cycles. Summary: "
             << summary_filename << "\n";
 

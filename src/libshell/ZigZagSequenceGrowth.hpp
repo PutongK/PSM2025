@@ -80,10 +80,29 @@ struct ToolpathConfig {
     ZigZagOperationConfig operation;
 };
 
+// Updates @08/06:
+// Persistent material-coordinate clamp regions for zigzag_sequence_BC.
+// The first version supports only fully fixed rectangular regions.
+struct FixedRectangleConfig {
+    std::string name;
+    Eigen::Vector2d center_uv_m = Eigen::Vector2d::Zero();
+    Eigen::Vector2d size_uv_m = Eigen::Vector2d::Zero();
+    double rotation_deg = 0.0;
+};
+
+struct BoundaryConditionsConfig {
+    bool enabled = false;
+    std::string coordinate_system = "material_uv";
+    std::string application = "persistent";
+    bool release_after_final_cycle = true;
+    std::vector<FixedRectangleConfig> regions;
+};
+
 struct SequenceConfig {
     int schema_version = 1;
     HardeningConfig hardening;
     DefaultsConfig defaults;
+    BoundaryConditionsConfig boundary_conditions;
     std::vector<ToolpathConfig> toolpaths;
 };
 
@@ -287,7 +306,8 @@ inline SequenceConfig loadSequenceJson(const std::string& filename)
     input >> root;
     rejectUnknownKeys(
         root,
-        {"schema_version", "units", "hardening", "defaults", "toolpaths"},
+        {"schema_version", "units", "hardening", "defaults",
+         "boundary_conditions", "toolpaths"},
         "zigzag_sequence root");
 
     SequenceConfig sequence;
@@ -314,6 +334,83 @@ inline SequenceConfig loadSequenceJson(const std::string& filename)
            "engineering_strain")
             throw std::runtime_error(
                 "zigzag_sequence: units.growth must be 'engineering_strain'.");
+    }
+
+
+    if(root.contains("boundary_conditions"))
+    {
+        const auto& bc = root.at("boundary_conditions");
+        rejectUnknownKeys(
+            bc,
+            {"enabled", "coordinate_system", "application",
+             "release_after_final_cycle", "regions"},
+            "zigzag_sequence boundary_conditions");
+
+        auto& config = sequence.boundary_conditions;
+        config.enabled = getBoolOrDefault(bc, "enabled", false);
+        config.coordinate_system = getStringOrDefault(
+            bc, "coordinate_system", "material_uv");
+        config.application = getStringOrDefault(
+            bc, "application", "persistent");
+        config.release_after_final_cycle = getBoolOrDefault(
+            bc, "release_after_final_cycle", true);
+
+        if(config.coordinate_system != "material_uv")
+            throw std::runtime_error(
+                "zigzag_sequence: boundary_conditions.coordinate_system "
+                "currently supports only 'material_uv'.");
+        if(config.application != "persistent")
+            throw std::runtime_error(
+                "zigzag_sequence: boundary_conditions.application "
+                "currently supports only 'persistent'.");
+
+        if(bc.contains("regions"))
+        {
+            if(!bc.at("regions").is_array())
+                throw std::runtime_error(
+                    "zigzag_sequence: boundary_conditions.regions must be an array.");
+
+            int region_index = 0;
+            for(const auto& item : bc.at("regions"))
+            {
+                const std::string context =
+                    "zigzag_sequence boundary_conditions.regions[" +
+                    std::to_string(region_index) + "]";
+                rejectUnknownKeys(
+                    item,
+                    {"name", "shape", "center_uv_mm", "size_uv_mm",
+                     "rotation_deg"},
+                    context);
+
+                if(getStringOrDefault(item, "shape", "rectangle") !=
+                   "rectangle")
+                    throw std::runtime_error(
+                        context + ": shape must be 'rectangle'.");
+
+                FixedRectangleConfig region;
+                region.name = getStringOrDefault(
+                    item, "name", "clamp_" + std::to_string(region_index + 1));
+                region.center_uv_m = readVec2Mm(
+                    item, "center_uv_mm", Eigen::Vector2d::Zero());
+                region.size_uv_m = readVec2Mm(
+                    item, "size_uv_mm", Eigen::Vector2d::Zero());
+                region.rotation_deg = getDoubleOrDefault(
+                    item, "rotation_deg", 0.0);
+
+                if(region.name.empty())
+                    throw std::runtime_error(context + ": name must not be empty.");
+                if(region.size_uv_m(0) <= 0.0 || region.size_uv_m(1) <= 0.0)
+                    throw std::runtime_error(
+                        context + ": size_uv_mm entries must both be > 0.");
+
+                config.regions.push_back(std::move(region));
+                ++region_index;
+            }
+        }
+
+        if(config.enabled && config.regions.empty())
+            throw std::runtime_error(
+                "zigzag_sequence: enabled boundary_conditions require at least one region.");
     }
 
     if(root.contains("hardening"))

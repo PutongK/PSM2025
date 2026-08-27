@@ -922,7 +922,12 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
     if(growth_type == "zigzag_sequence" ||
        growth_type == "zigzag_sequence_BC")
     {
-        const bool use_sequence_bc = (growth_type == "zigzag_sequence_BC");
+        // Both CLI names use the same recurring-sequence implementation.
+        // The JSON boundary_conditions.enabled flag is the source of truth
+        // for whether physical clamps and final release are activated.
+        const bool requested_sequence_bc_alias =
+            (growth_type == "zigzag_sequence_BC");
+
         if(enable_passE)
             throw std::runtime_error(
                 growth_type + " uses hit-count eigenstrain hardening; "
@@ -942,10 +947,25 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
         const zigzag_sequence::SequenceConfig sequence =
             zigzag_sequence::loadSequenceJson(cycle_file);
 
-        if(!use_sequence_bc && sequence.boundary_conditions.enabled)
-            throw std::runtime_error(
-                "zigzag_sequence: the JSON enables boundary_conditions. "
-                "Run with -growth_type zigzag_sequence_BC instead.");
+        const bool use_sequence_bc =
+            sequence.boundary_conditions.enabled;
+
+        // Normalize output tags to the actual mechanics mode rather than the
+        // compatibility CLI alias. This makes a BC-disabled run identical to
+        // the legacy zigzag_sequence naming, even if the user supplied
+        // -growth_type zigzag_sequence_BC.
+        tag = use_sequence_bc
+            ? "bilayer_zigzag_sequence_BC"
+            : "bilayer_zigzag_sequence";
+
+        if(requested_sequence_bc_alias && !use_sequence_bc)
+            std::cout
+                << "[zigzag_sequence] boundary_conditions.enabled=false; "
+                << "running the unconstrained recurring sequence.\n";
+        else if(!requested_sequence_bc_alias && use_sequence_bc)
+            std::cout
+                << "[zigzag_sequence] boundary_conditions.enabled=true; "
+                << "activating persistent clamps and final release.\n";
 
         Eigen::MatrixXb physicalClampMask =
             Eigen::MatrixXb::Constant(nVert, 3, false);
@@ -956,10 +976,6 @@ void Sim_Bilayer_Growth::TestCustomGrowth()
 
         if(use_sequence_bc)
         {
-            if(!sequence.boundary_conditions.enabled)
-                throw std::runtime_error(
-                    "zigzag_sequence_BC: JSON boundary_conditions.enabled "
-                    "must be true.");
             if(sequence.boundary_conditions.regions.size() != 2)
                 throw std::runtime_error(
                     "zigzag_sequence_BC first version requires exactly two "
